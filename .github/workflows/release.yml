@@ -20,6 +20,9 @@ concurrency:
 
 jobs:
   verify:
+    # Fork releases are built locally/verified in CI. Publishing requires a
+    # separately reviewed workflow and explicit registry permission.
+    if: github.repository == 'multica-ai/multica'
     runs-on: ubuntu-latest
     outputs:
       tag_name: ${{ steps.release_meta.outputs.tag_name }}

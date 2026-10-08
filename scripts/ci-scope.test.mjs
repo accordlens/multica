@@ -18,31 +18,34 @@ function filterFiles(files) {
 for (const [name, files, selected] of [
   ["readme only", ["README.md"], []],
   ["docs only", ["apps/docs/content/docs/guide.mdx"], ["quality"]],
-  ["web changelog", ["apps/web/features/landing/i18n/en.ts"], ["frontend", "quality"]],
+  ["web changelog", ["apps/web/features/landing/i18n/en.ts"], ["frontend", "quality", "selfhost"]],
   ["UI Lab", ["apps/ui-lab/src/app.tsx"], ["frontend", "quality"]],
   ["mobile UI", ["apps/mobile/app/index.tsx"], ["quality"]],
-  ["migration only", ["server/migrations/999_example.up.sql"], ["backend", "sqlc"]],
-  ["agent process code", ["server/pkg/agent/cursor_background.go"], ["backend", "runtime"]],
-  ["daemon dependency", ["server/internal/skill/service.go"], ["backend", "runtime"]],
-  ["native test compilation dependency", ["server/pkg/db/generated/issues.sql.go"], ["backend", "sqlc", "runtime"]],
-  ["Go dependencies", ["server/go.mod", "server/go.sum"], ["backend", "runtime"]],
+  ["migration only", ["server/migrations/999_example.up.sql"], ["backend", "sqlc", "selfhost"]],
+  ["agent process code", ["server/pkg/agent/cursor_background.go"], ["backend", "runtime", "selfhost"]],
+  ["daemon dependency", ["server/internal/skill/service.go"], ["backend", "runtime", "selfhost"]],
+  ["native test compilation dependency", ["server/pkg/db/generated/issues.sql.go"], ["backend", "sqlc", "runtime", "selfhost"]],
+  ["Go dependencies", ["server/go.mod", "server/go.sum"], ["backend", "runtime", "selfhost"]],
   ["Helm only", ["deploy/helm/multica/templates/deployment.yaml"], ["scripts"]],
-  ["container entrypoint", ["docker/entrypoint.sh"], ["scripts"]],
+  ["container entrypoint", ["docker/entrypoint.sh"], ["scripts", "selfhost"]],
   ["selfhost config", [".env.example"], ["scripts", "installer"]],
   ["shell installer", ["scripts/install.sh"], ["scripts", "installer"]],
   ["PowerShell installer", ["scripts/install.ps1.test.ps1"], ["installer"]],
   ["cleanup script", ["scripts/drop-database.sh"], ["scripts"]],
   ["performance harness", ["scripts/perf-compare.test.sh"], ["scripts"]],
-  ["reserved slug source", ["server/internal/handler/reserved_slugs.json"], ["backend", "runtime", "scripts"]],
-  ["reserved slug output", ["packages/core/paths/reserved-slugs.ts"], ["frontend", "quality", "scripts"]],
-  ["integration key gates", ["server/cmd/server/router.go"], ["backend", "runtime", "scripts"]],
-  ["cross-module runtime contract", ["packages/core/runtimes/cli-version.ts"], ["frontend", "backend", "runtime", "quality"]],
-  ["lockfile", ["pnpm-lock.yaml"], ["frontend", "quality"]],
+  ["reserved slug source", ["server/internal/handler/reserved_slugs.json"], ["backend", "runtime", "scripts", "selfhost"]],
+  ["reserved slug output", ["packages/core/paths/reserved-slugs.ts"], ["frontend", "quality", "scripts", "selfhost"]],
+  ["integration key gates", ["server/cmd/server/router.go"], ["backend", "runtime", "scripts", "selfhost"]],
+  ["cross-module runtime contract", ["packages/core/runtimes/cli-version.ts"], ["frontend", "backend", "runtime", "quality", "selfhost"]],
+  ["lockfile", ["pnpm-lock.yaml"], ["frontend", "quality", "selfhost"]],
   ["package patch", ["patches/example.patch"], ["frontend", "quality"]],
   ["radius policy", ["scripts/check-ui-radius-tokens.mjs"], ["quality"]],
   ["shared quality action", [".github/actions/frontend-quality/action.yml"], ["frontend", "quality"]],
-  ["new bitmap", ["apps/web/public/hero.png"], ["frontend", "quality", "images"]],
-  ["mixed docs and migration", ["apps/docs/content/guide.mdx", "server/migrations/999_example.up.sql"], ["quality", "backend", "sqlc"]],
+  ["new bitmap", ["apps/web/public/hero.png"], ["frontend", "quality", "images", "selfhost"]],
+  ["mixed docs and migration", ["apps/docs/content/guide.mdx", "server/migrations/999_example.up.sql"], ["quality", "backend", "sqlc", "selfhost"]],
+  ["release builder", ["scripts/selfhost-release.ps1"], ["selfhost"]],
+  ["release references", ["docker-compose.selfhost.release.yml"], ["scripts", "selfhost"]],
+  ["backend Dockerfile", ["Dockerfile"], ["selfhost"]],
   ["CI configuration", [".github/ci-paths.json"], Object.keys(filters)],
 ]) {
   test(`PR and main select only affected scopes: ${name}`, () => {
@@ -97,7 +100,7 @@ function productionNeeds(gate, outputs) {
   }));
 }
 
-for (const gate of ["frontend", "backend"]) {
+for (const gate of ["frontend", "backend", "selfhost"]) {
   test(`production ${gate} gate matches every dependency, condition and scope output`, () => {
     const mapping = productionMapping(gate);
     assert.match(jobs[gate], /^    if: \$\{\{ !cancelled\(\) \}\}$/m);

@@ -106,7 +106,9 @@
     ".github/workflows/ci.yml",
     ".github/ci-paths.json",
     "scripts/ci-scope.mjs",
-    "scripts/ci-scope.test.mjs"
+    "scripts/ci-scope.test.mjs",
+    "scripts/selfhost-release.test.mjs",
+    "docker-compose.selfhost.release.yml"
   ],
   "installer": [
     "scripts/install.sh",
@@ -136,5 +138,26 @@
     ".github/ci-paths.json",
     "scripts/ci-scope.mjs",
     "scripts/ci-scope.test.mjs"
+  ],
+  "selfhost": [
+    "Dockerfile",
+    "Dockerfile.web",
+    ".dockerignore",
+    "docker-compose.selfhost.yml",
+    "docker-compose.selfhost.build.yml",
+    "docker-compose.selfhost.release.yml",
+    "docker/**",
+    "scripts/selfhost-release.ps1",
+    "scripts/selfhost-release.test.mjs",
+    "server/**",
+    "apps/web/**",
+    "packages/**",
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "turbo.json",
+    ".npmrc",
+    ".github/workflows/ci.yml",
+    ".github/ci-paths.json"
   ]
 }

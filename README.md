@@ -8,6 +8,9 @@
 
 # Multica
 
+For this fork's reproducible source builds and Windows Docker Desktop pilot,
+see [the fork release runbook](SELF_HOSTING_FORK_WINDOWS.md).
+
 **Agents that show up on the board.**
 
 Multica is a source-available workspace where you assign work to AI coding agents the way you'd

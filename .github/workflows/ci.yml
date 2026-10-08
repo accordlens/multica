@@ -31,6 +31,7 @@ jobs:
       installer: ${{ steps.decide.outputs.installer }}
       images: ${{ steps.decide.outputs.images }}
       full: ${{ steps.decide.outputs.full }}
+      selfhost: ${{ steps.decide.outputs.selfhost }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -882,6 +883,9 @@ jobs:
       - name: Test self-host env derivation
         run: bash scripts/selfhost-config.test.sh
 
+      - name: Test immutable self-host release references
+        run: node --test scripts/selfhost-release.test.mjs
+
       - name: Test worktree database cleanup
         run: bash scripts/worktree-db.test.sh
 
@@ -928,3 +932,44 @@ jobs:
 
       - name: Check frontend quality
         uses: ./.github/actions/frontend-quality
+
+  selfhost-release:
+    needs: changes
+    if: ${{ needs.changes.outputs.selfhost == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Build the reviewed head, not GitHub's synthetic merge commit.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Build Linux amd64 images, Windows CLI, and smoke isolated Compose
+        shell: pwsh
+        run: ./scripts/selfhost-release.ps1 -Platform linux/amd64 -Smoke
+      - name: Retain release evidence (no registry publication)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selfhost-release-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            release-artifacts/manifest.json
+            release-artifacts/*-build.json
+            release-artifacts/release.env
+            release-artifacts/cli-windows-amd64/multica.exe
+          if-no-files-found: error
+          retention-days: 3
+
+  selfhost:
+    # Stable required check: a failed build/smoke cannot become an accepted skip.
+    needs: [changes, selfhost-release]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check self-host release result
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          JOB_SCOPES: '{"selfhost-release":"selfhost"}'
+        run: node scripts/ci-scope.mjs gate
