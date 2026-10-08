@@ -45,6 +45,7 @@ for (const [name, files, selected] of [
   ["mixed docs and migration", ["apps/docs/content/guide.mdx", "server/migrations/999_example.up.sql"], ["quality", "backend", "sqlc", "selfhost"]],
   ["release builder", ["scripts/selfhost-release.ps1"], ["selfhost"]],
   ["release references", ["docker-compose.selfhost.release.yml"], ["scripts", "selfhost"]],
+  ["Windows recovery", ["docker-compose.selfhost.windows.yml", "scripts/selfhost-data.ps1"], ["selfhost"]],
   ["backend Dockerfile", ["Dockerfile"], ["selfhost"]],
   ["CI configuration", [".github/ci-paths.json"], Object.keys(filters)],
 ]) {

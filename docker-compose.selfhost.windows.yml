@@ -1,0 +1,13 @@
+# Last override: base + release + windows. Requires Compose >= 2.24.4.
+# Replace the list: merging ports could retain an unintended inherited listener.
+services:
+  postgres:
+    ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a random hex password in the private env file}
+  backend:
+    ports: !override
+      - "127.0.0.1:${MULTICA_WINDOWS_API_PORT:?Select a distinct API port for this stack}:8080"
+  frontend:
+    ports: !override
+      - "127.0.0.1:${MULTICA_WINDOWS_WEB_PORT:?Select a distinct web port for this stack}:3000"

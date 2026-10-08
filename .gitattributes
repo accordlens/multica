@@ -1,6 +1,9 @@
 # Ensure shell scripts always use LF line endings (needed for Docker on Windows)
 *.sh text eol=lf
 docker/entrypoint.sh text eol=lf
+scripts/selfhost-*.ps1 text eol=lf
+.env.windows.example text eol=lf
+docker-compose.selfhost*.yml text eol=lf
 
 # Default behavior
 * text=auto
