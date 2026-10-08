@@ -65,6 +65,12 @@ func (h *Handler) revokeAndRemoveMember(ctx context.Context, workspaceID, userID
 		return empty, err
 	}
 
+	if _, err := qtx.LockChatSessionsByWorkspace(ctx, workspaceID); err != nil {
+		return empty, err
+	}
+	if err := qtx.RevokeChatWorkspaceMember(ctx, db.RevokeChatWorkspaceMemberParams{WorkspaceID: workspaceID, UserID: userID}); err != nil {
+		return empty, err
+	}
 	runtimes, err := qtx.ListAgentRuntimesByOwner(ctx, db.ListAgentRuntimesByOwnerParams{
 		WorkspaceID: workspaceID,
 		OwnerID:     userID,

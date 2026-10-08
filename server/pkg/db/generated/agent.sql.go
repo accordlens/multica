@@ -5435,19 +5435,29 @@ func (q *Queries) ListActiveTasksByIssueFamily(ctx context.Context, arg ListActi
 }
 
 const listAgentTasks = `-- name: ListAgentTasks :many
-SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, wait_reason, initiator_user_id, handoff_note, prepare_lease_expires_at, squad_id, runtime_mcp_overlay, escalation_for_task_id, fire_at, originator_user_id, runtime_connected_apps, coalesced_comment_ids, delivered_comment_ids, chat_input_task_id, chat_finalize_deferred_at, originator_source, delegated_from_task_id, retry_of_task_id, rerun_of_task_id, rule_version_id, trigger_evidence_kind, trigger_evidence_ref_id, accountable_user_id, session_rollout_missing, retired_session_id, quick_actions_disabled, regenerate_quick_actions_for, branch_name, durable_work_dir, channel_context_revision, comment_thread_id, cancelled_by_type, cancelled_by_id, cancelled_by_name, issue_snapshot FROM agent_task_queue
-WHERE agent_id = $1
+SELECT atq.id, atq.agent_id, atq.issue_id, atq.status, atq.priority, atq.dispatched_at, atq.started_at, atq.completed_at, atq.result, atq.error, atq.created_at, atq.context, atq.runtime_id, atq.session_id, atq.work_dir, atq.trigger_comment_id, atq.chat_session_id, atq.autopilot_run_id, atq.attempt, atq.max_attempts, atq.parent_task_id, atq.failure_reason, atq.trigger_summary, atq.force_fresh_session, atq.is_leader_task, atq.wait_reason, atq.initiator_user_id, atq.handoff_note, atq.prepare_lease_expires_at, atq.squad_id, atq.runtime_mcp_overlay, atq.escalation_for_task_id, atq.fire_at, atq.originator_user_id, atq.runtime_connected_apps, atq.coalesced_comment_ids, atq.delivered_comment_ids, atq.chat_input_task_id, atq.chat_finalize_deferred_at, atq.originator_source, atq.delegated_from_task_id, atq.retry_of_task_id, atq.rerun_of_task_id, atq.rule_version_id, atq.trigger_evidence_kind, atq.trigger_evidence_ref_id, atq.accountable_user_id, atq.session_rollout_missing, atq.retired_session_id, atq.quick_actions_disabled, atq.regenerate_quick_actions_for, atq.branch_name, atq.durable_work_dir, atq.channel_context_revision, atq.comment_thread_id, atq.cancelled_by_type, atq.cancelled_by_id, atq.cancelled_by_name, atq.issue_snapshot FROM agent_task_queue atq
+WHERE atq.agent_id = $1
+  AND ((atq.chat_session_id IS NULL AND NOT EXISTS (
+      SELECT 1 FROM chat_protected_task p WHERE p.task_id=atq.id AND p.is_private
+    )) OR EXISTS (
+      SELECT 1 FROM chat_session s
+      JOIN member m ON m.workspace_id=s.workspace_id AND m.user_id = $2
+      JOIN "user" u ON u.id=m.user_id AND u.deactivated_at IS NULL
+      LEFT JOIN chat_participant p ON p.chat_session_id=s.id AND p.actor_id=m.user_id AND p.actor_type='member' AND p.revoked_at IS NULL
+      WHERE s.id=COALESCE(atq.chat_session_id,(SELECT scope.chat_session_id FROM chat_protected_task scope WHERE scope.task_id=atq.id AND scope.is_private)) AND (s.kind='public_channel' OR (s.kind='agent_dm' AND s.creator_id=m.user_id AND p.actor_id IS NOT NULL) OR (s.kind IN ('private_channel','dm','self_dm','group_dm') AND p.actor_id IS NOT NULL))
+  ))
   -- Apply visibility before LIMIT so hidden fallbacks cannot end a page early.
   -- Keep this predicate in sync with handler.visibleTaskHistory.
   AND NOT (escalation_for_task_id IS NOT NULL AND started_at IS NULL
            AND status IN ('deferred', 'cancelled'))
-  AND (created_at, id) < ($2::timestamptz, $3::uuid)
-ORDER BY created_at DESC, id DESC
-LIMIT $4
+  AND (atq.created_at, atq.id) < ($3::timestamptz, $4::uuid)
+ORDER BY atq.created_at DESC, atq.id DESC
+LIMIT $5
 `
 
 type ListAgentTasksParams struct {
 	AgentID         pgtype.UUID        `json:"agent_id"`
+	ViewerUserID    pgtype.UUID        `json:"viewer_user_id"`
 	BeforeCreatedAt pgtype.Timestamptz `json:"before_created_at"`
 	BeforeID        pgtype.UUID        `json:"before_id"`
 	PageLimit       int32              `json:"page_limit"`
@@ -5456,6 +5466,7 @@ type ListAgentTasksParams struct {
 func (q *Queries) ListAgentTasks(ctx context.Context, arg ListAgentTasksParams) ([]AgentTaskQueue, error) {
 	rows, err := q.db.Query(ctx, listAgentTasks,
 		arg.AgentID,
+		arg.ViewerUserID,
 		arg.BeforeCreatedAt,
 		arg.BeforeID,
 		arg.PageLimit,

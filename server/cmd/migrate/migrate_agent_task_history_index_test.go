@@ -20,7 +20,7 @@ func TestAgentTaskHistoryIndexMigrationAndPagePlans(t *testing.T) {
 		`CREATE TABLE agent_task_queue (
     id UUID PRIMARY KEY, agent_id UUID NOT NULL, created_at TIMESTAMPTZ NOT NULL,
     status TEXT NOT NULL, escalation_for_task_id UUID, started_at TIMESTAMPTZ,
-    result TEXT
+    result TEXT, chat_session_id UUID
   )`,
 		`INSERT INTO agent_task_queue (id, agent_id, created_at, status, result)
    SELECT md5('task-' || n)::uuid, md5('agent')::uuid,
@@ -28,6 +28,11 @@ func TestAgentTaskHistoryIndexMigrationAndPagePlans(t *testing.T) {
      'completed', repeat('x', 128)
    FROM generate_series(1, 18165) AS n`,
 		`ANALYZE agent_task_queue`,
+		`CREATE TABLE chat_session(id uuid, workspace_id uuid, kind text, creator_id uuid)`,
+		`CREATE TABLE chat_protected_task(task_id uuid,chat_session_id uuid,is_private boolean)`,
+		`CREATE TABLE member(user_id uuid,workspace_id uuid)`,
+		`CREATE TABLE "user"(id uuid,deactivated_at timestamptz)`,
+		`CREATE TABLE chat_participant(chat_session_id uuid,actor_id uuid,actor_type text,revoked_at timestamptz)`,
 	} {
 		if _, err := pool.Exec(ctx, statement); err != nil {
 			t.Fatalf("fixture: %v", err)
@@ -51,7 +56,7 @@ func TestAgentTaskHistoryIndexMigrationAndPagePlans(t *testing.T) {
 	const version = "552_agent_task_history_page_index"
 	const indexName = "idx_agent_task_queue_history_page"
 	options := runOptions{
-		Direction: "up", Files: realMigrationFiles(t, []string{version}, "up"),
+		Direction: "up", Files: realMigrationFiles(t, []string{version, "582_team_chat_protected_tasks_index"}, "up"),
 		SchemaMigrationsTable: schema + ".schema_migrations",
 		AdvisoryLockKey:       int64(rand.Uint64()&0x7fffffffffffffff) | 1,
 		Hooks:                 hooksForDirection("up"),
@@ -62,6 +67,7 @@ func TestAgentTaskHistoryIndexMigrationAndPagePlans(t *testing.T) {
 	assertIndexValidity(t, pool, schema, indexName, true)
 	for _, before := range []string{"'infinity'", "'2026-09-01T02:00:00Z'"} {
 		query := strings.NewReplacer(
+			"@viewer_user_id", "md5('viewer')::uuid",
 			"@agent_id", "md5('agent')::uuid",
 			"@before_created_at", before,
 			"@before_id", "'ffffffff-ffff-ffff-ffff-ffffffffffff'",
@@ -74,7 +80,7 @@ func TestAgentTaskHistoryIndexMigrationAndPagePlans(t *testing.T) {
 		t.Logf("page before %s:\n%s", before, plan)
 	}
 	options.Direction = "down"
-	options.Files = realMigrationFiles(t, []string{version}, "down")
+	options.Files = realMigrationFiles(t, []string{version, "582_team_chat_protected_tasks_index"}, "down")
 	options.Hooks = hooksForDirection("down")
 	if err := runMigrations(ctx, pool, options); err != nil {
 		t.Fatal(err)
@@ -82,7 +88,7 @@ func TestAgentTaskHistoryIndexMigrationAndPagePlans(t *testing.T) {
 	assertIndexExists(t, pool, schema, indexName, false)
 	assertMigrationVersionRecorded(t, ctx, pool, schema, version, false)
 	options.Direction = "up"
-	options.Files = realMigrationFiles(t, []string{version}, "up")
+	options.Files = realMigrationFiles(t, []string{version, "582_team_chat_protected_tasks_index"}, "up")
 	options.Hooks = hooksForDirection("up")
 	if err := runMigrations(ctx, pool, options); err != nil {
 		t.Fatal(err)

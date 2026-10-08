@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { forgetLocalSearchIndex } from "../search-index/instance";
+import { clearPrivateCaches } from "../platform/private-cache";
 import { useQueryClient, type InfiniteData, type QueryClient, type QueryFilters } from "@tanstack/react-query";
 import type { WSClient } from "../api/ws-client";
 import type { StoreApi, UseBoundStore } from "zustand";
@@ -1355,6 +1356,10 @@ export function useRealtimeSync(
       const { user_id, workspace_id } = p as MemberRemovedPayload;
       const myUserId = authStore.getState().user?.id;
       if (user_id === myUserId) {
+        clearPrivateCaches();
+        taskMessageBatches.clear();
+        void qc.cancelQueries();
+        qc.removeQueries();
         const lostWsId = workspace_id || getCurrentWsId();
         if (lostWsId) void forgetLocalSearchIndex(lostWsId);
         const slug = getCurrentSlug();
@@ -1789,6 +1794,29 @@ export function useRealtimeSync(
     // handler keeps OTHER tabs/devices in sync and also clears the active
     // session pointer so a deleted session doesn't keep the chat window
     // pointed at vanished messages.
+    const unsubChatAccessRevoked = ws.on("chat:access_revoked", (p) => {
+      const payload = p as { chat_session_id: string; workspace_id: string };
+      void forgetLocalSearchIndex(payload.workspace_id);
+      clearPrivateCaches();
+      taskMessageBatches.clear();
+      // Task/attachment keys predate conversation ownership. Purge these
+      // projections until their APIs supply a conversation namespace.
+      const privateQueries: QueryFilters = { predicate: (q) =>
+        String(q.queryKey[0]).startsWith("attachment") ||
+        q.queryKey[0] === "task-messages" ||
+        q.queryKey.includes(payload.chat_session_id) ||
+        q.queryKey.includes("agent-tasks") ||
+        q.queryKey.includes("agent-task-snapshot") ||
+        q.queryKey.includes("pending-tasks") };
+      void qc.cancelQueries(privateQueries);
+      qc.removeQueries(privateQueries);
+      qc.setQueryData<ChatSession[]>(chatKeys.sessions(payload.workspace_id),
+        (old) => old?.filter((s) => s.id !== payload.chat_session_id));
+      qc.invalidateQueries({ queryKey: chatKeys.sessions(payload.workspace_id) });
+      const chat = useChatStore.getState?.();
+      chat?.clearInputDraft(payload.chat_session_id);
+      if (chat?.activeSessionId === payload.chat_session_id) chat.setActiveSession(null);
+    });
     const unsubChatSessionDeleted = ws.on("chat:session_deleted", (p) => {
       const payload = p as { chat_session_id: string };
       chatWsLogger.info("chat:session_deleted (global)", payload);
@@ -1853,6 +1881,7 @@ export function useRealtimeSync(
       unsubTaskFailed();
       unsubChatSessionRead();
       unsubChatSessionCreated();
+      unsubChatAccessRevoked();
       unsubChatSessionDeleted();
       unsubChatSessionUpdated();
       if (taskMessageFlushTimer) clearTimeout(taskMessageFlushTimer);

@@ -1467,7 +1467,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// static route instead of hitting the global frame-ancestors 'none' CSP.
 	// See MUL-3821 / #4477.
 	if _, ok := store.(*storage.LocalStorage); ok {
-		r.Get("/uploads/*", h.ServeLocalUpload)
+		r.With(middleware.OptionalAuth(queries, patCache, cloudPATVerifier, cfSigner)).Get("/uploads/*", h.ServeLocalUpload)
 	}
 
 	// Capability-authenticated attachment download (MUL-5292). Public by
@@ -1479,7 +1479,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// /api/attachments/{id} after that request's membership check passed.
 	// The authenticated /api/attachments/{id}/download route below is
 	// unchanged — this one is purely additive.
-	r.Get("/api/attachments/{id}/signed-download", h.DownloadAttachmentWithCapability)
+	r.With(middleware.OptionalAuth(queries, patCache, cloudPATVerifier, cfSigner)).Get("/api/attachments/{id}/signed-download", h.DownloadAttachmentWithCapability)
 
 	// Avatar serving. Public for the same reason as the capability download
 	// above: the auth cookie is SameSite=Strict, so an auth-gated URL cannot
@@ -2247,7 +2247,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Post("/archive", h.ArchiveAgent)
 					r.Post("/restore", h.RestoreAgent)
 					r.Post("/cancel-tasks", h.CancelAgentTasks)
-					r.Get("/tasks", h.ListAgentTasks)
+					r.With(handler.RequireHumanActor).Get("/tasks", h.ListAgentTasks)
 					r.Get("/dingtalk/groups", h.ListDingTalkGroupsForAgent)
 					r.Get("/skills", h.ListAgentSkills)
 					r.Put("/skills", h.SetAgentSkills)
@@ -2374,7 +2374,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 
 			// Workspace-wide agent task snapshot for presence derivation:
 			// every active task + each agent's most recent terminal task.
-			r.Get("/api/agent-task-snapshot", h.ListWorkspaceAgentTaskSnapshot)
+			r.With(handler.RequireHumanActor).Get("/api/agent-task-snapshot", h.ListWorkspaceAgentTaskSnapshot)
 			r.Get("/api/issue-wakeup-summaries", h.ListWorkspaceWakeupSummaries)
 			r.Get("/api/issue-wakeups", h.ListWorkspaceWakeups)
 			r.Get("/api/issue-wakeup-paused", h.ListPausedWakeups)
@@ -2394,7 +2394,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Get("/api/agent-run-counts", h.GetWorkspaceAgentRunCounts)
 
 			r.Get("/api/chat/v2/capabilities", h.GetChatCapabilities)
+			r.Put("/api/chat/v2/conversations/{conversationId}/participants/{userId}", h.ChangeChatParticipantV2)
+			r.Delete("/api/chat/v2/conversations/{conversationId}/participants/{userId}", h.ChangeChatParticipantV2)
+			r.Patch("/api/chat/v2/conversations/{conversationId}", h.ChangeChatMetadataV2)
+			r.Get("/api/chat/v2/conversations/{conversationId}", h.GetChatConversationV2)
+			r.Get("/api/chat/v2/conversations/{conversationId}/messages", h.ListChatMessagesV2)
 			r.Route("/api/chat/sessions", func(r chi.Router) {
+				r.Use(handler.RequireHumanActor)
 				r.Post("/", h.CreateChatSession)
 				r.Get("/", h.ListChatSessions)
 				r.Route("/{sessionId}", func(r chi.Router) {
@@ -2420,13 +2426,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Delete("/draft-restores/{restoreId}", h.ConsumeChatDraftRestore)
 				})
 			})
-			r.Get("/api/chat/pending-tasks", h.ListPendingChatTasks)
-			r.Get("/api/chat/pending-tasks/has-any", h.HasPendingChatTasks)
+			r.With(handler.RequireHumanActor).Get("/api/chat/pending-tasks", h.ListPendingChatTasks)
+			r.With(handler.RequireHumanActor).Get("/api/chat/pending-tasks/has-any", h.HasPendingChatTasks)
 
 			// Quick-agent bar: per-user pinned agents for one-tap new chats.
-			r.Get("/api/chat/pinned-agents", h.ListChatPinnedAgents)
-			r.Post("/api/chat/pinned-agents", h.PinChatAgent)
-			r.Delete("/api/chat/pinned-agents/{agentId}", h.UnpinChatAgent)
+			r.With(handler.RequireHumanActor).Get("/api/chat/pinned-agents", h.ListChatPinnedAgents)
+			r.With(handler.RequireHumanActor).Post("/api/chat/pinned-agents", h.PinChatAgent)
+			r.With(handler.RequireHumanActor).Delete("/api/chat/pinned-agents/{agentId}", h.UnpinChatAgent)
 
 			// Agent-facing channel reads (MUL-3871). The caller's task-scoped token
 			// resolves to its own chat session; no session/channel id is passed, so

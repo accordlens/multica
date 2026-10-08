@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
+	"github.com/multica-ai/multica/server/internal/chataccess"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/service"
@@ -192,6 +193,9 @@ func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		resp = make([]ChatSessionResponse, 0, len(rows))
 		for _, s := range rows {
+			if _, err := chataccess.Read(r.Context(), h.Queries, parseUUID(userID), parseUUID(workspaceID), s.ID); err != nil {
+				continue
+			}
 			if _, ok := allowed[uuidToString(s.AgentID)]; !ok {
 				continue
 			}
@@ -222,6 +226,9 @@ func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		resp = make([]ChatSessionResponse, 0, len(rows))
 		for _, s := range rows {
+			if _, err := chataccess.Read(r.Context(), h.Queries, parseUUID(userID), parseUUID(workspaceID), s.ID); err != nil {
+				continue
+			}
 			if _, ok := allowed[uuidToString(s.AgentID)]; !ok {
 				continue
 			}
@@ -266,8 +273,11 @@ func (h *Handler) loadChatSessionForUser(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusNotFound, "chat session not found")
 		return db.ChatSession{}, false
 	}
-	if uuidToString(session.CreatorID) != userID {
+	if session.Kind != "agent_dm" || uuidToString(session.CreatorID) != userID {
 		writeError(w, http.StatusForbidden, "not your chat session")
+		return db.ChatSession{}, false
+	}
+	if _, ok := h.authorizeChatRequest(w, r, session.WorkspaceID, session.ID, true); !ok {
 		return db.ChatSession{}, false
 	}
 	return session, true
@@ -377,6 +387,12 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	qtx, tx, ok := h.lockChatForRequest(w, r, session)
+	if !ok {
+		return
+	}
+	defer tx.Rollback(r.Context())
+
 	var (
 		updated db.ChatSession
 		err     error
@@ -392,7 +408,7 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "title is too long")
 			return
 		}
-		updated, err = h.Queries.UpdateChatSessionTitle(r.Context(), db.UpdateChatSessionTitleParams{
+		updated, err = qtx.UpdateChatSessionTitle(r.Context(), db.UpdateChatSessionTitleParams{
 			ID:    session.ID,
 			Title: title,
 		})
@@ -415,14 +431,6 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		tx, txErr := h.TxStarter.Begin(r.Context())
-		if txErr != nil {
-			writeError(w, http.StatusInternalServerError, "failed to start transaction")
-			return
-		}
-		defer tx.Rollback(r.Context())
-		qtx := h.Queries.WithTx(tx)
-
 		if projectID.Valid {
 			if _, lockErr := qtx.LockProjectForChatSessionCreate(r.Context(), db.LockProjectForChatSessionCreateParams{
 				ID:          projectID,
@@ -442,10 +450,11 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 			WorkspaceID: session.WorkspaceID,
 			ProjectID:   projectID,
 		})
-		if err == nil {
-			err = tx.Commit(r.Context())
-		}
+
 		projectIDChanged = true
+	}
+	if err == nil {
+		err = tx.Commit(r.Context())
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update chat session")
@@ -494,10 +503,18 @@ func (h *Handler) SetChatSessionPinned(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := h.Queries.SetChatSessionPinned(r.Context(), db.SetChatSessionPinnedParams{
+	qtx, tx, ok := h.lockChatForRequest(w, r, session)
+	if !ok {
+		return
+	}
+	defer tx.Rollback(r.Context())
+	updated, err := qtx.SetChatSessionPinned(r.Context(), db.SetChatSessionPinnedParams{
 		ID:     session.ID,
 		Pinned: req.Pinned,
 	})
+	if err == nil {
+		err = tx.Commit(r.Context())
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update chat session")
 		return
@@ -563,13 +580,11 @@ func (h *Handler) SetChatSessionArchived(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	tx, err := h.TxStarter.Begin(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to start transaction")
+	qtx, tx, ok := h.lockChatForRequest(w, r, session)
+	if !ok {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	qtx := h.Queries.WithTx(tx)
 
 	updated, err := qtx.SetChatSessionArchived(r.Context(), db.SetChatSessionArchivedParams{
 		ID:       session.ID,
@@ -709,6 +724,11 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	scoped := *h
+	scoped.Queries = qtx
+	if _, ok := scoped.authorizeChatRequest(w, r, session.WorkspaceID, session.ID); !ok {
+		return
+	}
 	// Claim, clear, prioritize, and direct send all lock the agent before task
 	// rows. Keep delete on the same agent -> task suffix after its session lock,
 	// otherwise a builder-agent delete can deadlock with a concurrent claim.
@@ -949,6 +969,8 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	sent, err := h.TaskService.SendDirectChatMessage(r.Context(), session, agent, parseUUID(userID), req.Content, attachmentIDs, actorType, parseUUID(actorID))
 	if err != nil {
 		switch {
+		case errors.Is(err, chataccess.ErrInvisible), errors.Is(err, chataccess.ErrForbidden):
+			chatAccessError(w, err)
 		case errors.Is(err, service.ErrChatSessionArchived):
 			writeError(w, http.StatusConflict, "chat session is archived")
 		case errors.Is(err, service.ErrChatTaskAgentArchived):
@@ -1339,11 +1361,20 @@ func (h *Handler) MarkChatSessionRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Queries.MarkChatSessionRead(r.Context(), session.ID); err != nil {
+	qtx, tx, ok := h.lockChatForRequest(w, r, session)
+	if !ok {
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if err := qtx.MarkChatSessionRead(r.Context(), session.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to mark session read")
 		return
 	}
 
+	if err := tx.Commit(r.Context()); err != nil {
+		chatAccessError(w, err)
+		return
+	}
 	resolvedSessionID := uuidToString(session.ID)
 	h.publishChat(protocol.EventChatSessionRead, workspaceID, "member", userID, resolvedSessionID, protocol.ChatSessionReadPayload{
 		ChatSessionID: resolvedSessionID,
@@ -1501,6 +1532,10 @@ func (h *Handler) ListPendingChatTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	workspaceID := ctxWorkspaceID(r.Context())
+	if r.Header.Get("X-Actor-Source") == "task_token" {
+		writeError(w, 403, "human aggregate required")
+		return
+	}
 
 	member, ok := h.workspaceMember(w, r, workspaceID)
 	if !ok {
@@ -1535,6 +1570,9 @@ func (h *Handler) ListPendingChatTasks(w http.ResponseWriter, r *http.Request) {
 	// scan on this hot path (MUL-4159).
 	items := make([]PendingChatTaskItem, 0, len(rows))
 	for _, row := range rows {
+		if _, err := chataccess.Read(r.Context(), h.Queries, parseUUID(userID), parseUUID(workspaceID), row.ChatSessionID); err != nil {
+			continue
+		}
 		agentID := uuidToString(row.AgentID)
 		if _, ok := allowed[agentID]; !ok {
 			continue
@@ -1571,6 +1609,10 @@ func (h *Handler) HasPendingChatTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	workspaceID := ctxWorkspaceID(r.Context())
+	if r.Header.Get("X-Actor-Source") == "task_token" {
+		writeError(w, 403, "human aggregate required")
+		return
+	}
 
 	member, ok := h.workspaceMember(w, r, workspaceID)
 	if !ok {
@@ -1805,6 +1847,11 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
+	conversation, err := chataccess.TaskConversation(r.Context(), h.Queries, task)
+	if err != nil {
+		chatAccessError(w, err)
+		return
+	}
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
 
 	var (
@@ -1868,7 +1915,13 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if conversation.Valid {
+		if _, ok := h.authorizeChatRequest(w, r, wsUUID, conversation); !ok {
+			return
+		}
+	}
 	cancelled, err := h.TaskService.CancelTaskWithResult(r.Context(), taskUUID, service.CancelTaskOptions{
+		AuthorizeChat:              chatCancellationAuth(r, wsUUID, conversation),
 		ClientSupportsDraftRestore: requestHasClientCapability(r, protocol.AppCapabilityChatDraftRestoreV1),
 		QueuedOnly:                 queuedOnly,
 		ExpectedChatSession:        expectedSession,
@@ -1878,6 +1931,10 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 	})
 	if errors.Is(err, service.ErrTaskNoLongerQueued) {
 		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	if errors.Is(err, chataccess.ErrInvisible) || errors.Is(err, chataccess.ErrForbidden) {
+		chatAccessError(w, err)
 		return
 	}
 	if err != nil {

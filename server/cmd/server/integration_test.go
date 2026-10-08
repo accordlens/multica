@@ -27,6 +27,7 @@ import (
 var (
 	testServer      *httptest.Server
 	testPool        *pgxpool.Pool
+	testChatHub     *realtime.Hub
 	testToken       string
 	testUserID      string
 	testWorkspaceID string
@@ -68,10 +69,13 @@ func TestMain(m *testing.M) {
 	}
 
 	hub := realtime.NewHub()
+	testChatHub = hub
 	go hub.Run()
 
 	bus := events.New()
-	registerListeners(bus, hub)
+	registerListeners(bus, hub, db.New(pool))
+	hub.SetAuthorizer(newScopeAuthorizer(db.New(pool)))
+	hub.SetDeliveryAuthorizer(newScopeAuthorizer(db.New(pool)))
 	// Same wiring as main.go: HTTP writes through the test server log activity.
 	registerActivityListeners(bus, db.New(pool))
 	router := NewRouter(pool, hub, bus, analytics.NoopClient{}, nil)

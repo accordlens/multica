@@ -11,6 +11,12 @@ import { chatKeys, taskMessagesOptions } from "../chat/queries";
 import type { TaskMessagePayload } from "../types/events";
 import type { WSClient } from "../api/ws-client";
 import { useRealtimeSync, type RealtimeSyncStores } from "./use-realtime-sync";
+import { registerPrivateCacheCleanup } from "../platform/private-cache";
+import { forgetLocalSearchIndex } from "../search-index/instance";
+
+vi.mock("../search-index/instance", () => ({
+  forgetLocalSearchIndex: vi.fn(async () => undefined),
+}));
 
 vi.mock("../platform/workspace-storage", () => ({
   getCurrentWsId: () => "ws-1",
@@ -98,6 +104,31 @@ describe("useRealtimeSync — task:message fanout guards (MUL-6396)", () => {
     if (!handler) throw new Error("task:message handler was not registered");
     return handler;
   }
+
+  it("purges private history, metadata, bytes and buffered task output on revoke", () => {
+    mount();
+    const release = vi.fn();
+    const unregister = registerPrivateCacheCleanup(release);
+    const session = "private-session";
+    const keys = [
+      chatKeys.messages(session), chatKeys.messagesPage(session),
+      chatKeys.session("ws-1", session), chatKeys.taskMessages(HELD_TASK),
+      ["attachment-inline-blob", "private-file"],
+      ["workspaces", "ws-1", "agent-task-snapshot"],
+    ];
+    for (const key of keys) qc.setQueryData(key, [{ content: "private" }]);
+    qc.setQueryData(chatKeys.sessions("ws-1"), [{ id: session }]);
+    const taskHandler = handlers.get("task:message")!;
+    taskHandler(msg(HELD_TASK, 1));
+    taskHandler(msg(HELD_TASK, 2));
+    handlers.get("chat:access_revoked")!({ chat_session_id: session, workspace_id: "ws-1" });
+    vi.advanceTimersByTime(FLUSH_MS * 2);
+    for (const key of keys) expect(qc.getQueryData(key)).toBeUndefined();
+    expect(qc.getQueryData(chatKeys.sessions("ws-1"))).toEqual([]);
+    expect(release).toHaveBeenCalledOnce();
+    expect(forgetLocalSearchIndex).toHaveBeenCalledWith("ws-1");
+    unregister();
+  });
 
   /** Simulates a mounted view rendering this task's timeline. */
   function holdTimeline(taskId: string) {

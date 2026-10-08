@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
+	"github.com/multica-ai/multica/server/internal/chataccess"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/integrations/slack"
 	"github.com/multica-ai/multica/server/internal/issuestatus"
@@ -5458,9 +5459,20 @@ func (h *Handler) GetActiveTaskForIssue(w http.ResponseWriter, r *http.Request) 
 	}
 
 	workspaceID := uuidToString(issue.WorkspaceID)
-	resp := make([]AgentTaskResponse, len(tasks))
-	for i, t := range tasks {
-		resp[i] = taskToResponse(t, workspaceID)
+	ids := make([]pgtype.UUID, len(tasks))
+	for i, task := range tasks {
+		ids[i] = task.ID
+	}
+	private, err := h.readableChatTaskIDs(r, issue.WorkspaceID, ids)
+	if err != nil {
+		chatAccessError(w, err)
+		return
+	}
+	resp := make([]AgentTaskResponse, 0, len(tasks))
+	for _, task := range tasks {
+		if allowed, protected := private[task.ID]; !protected || allowed {
+			resp = append(resp, taskToResponse(task, workspaceID))
+		}
 	}
 	// Same issue-facing attribution surface as ListTasksByIssue — hydrate names.
 	h.hydrateTaskAttributions(r.Context(), attributionsOf(resp))
@@ -5485,20 +5497,36 @@ func (h *Handler) CancelTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
+	conversation, err := chataccess.TaskConversation(r.Context(), h.Queries, existing)
+	if err != nil {
+		chatAccessError(w, err)
+		return
+	}
+	if conversation.Valid {
+		if _, ok := h.authorizeChatRequest(w, r, issue.WorkspaceID, conversation); !ok {
+			return
+		}
+	}
 
 	workspaceID := uuidToString(issue.WorkspaceID)
 	actorType, actorID := h.resolveActor(r, requestUserID(r), workspaceID)
-	task, err := h.TaskService.CancelTaskByUser(
-		r.Context(),
-		existing.ID,
-		h.taskCancellationActor(r.Context(), actorType, actorID),
-	)
+	result, err := h.TaskService.CancelTaskWithResult(r.Context(), existing.ID, service.CancelTaskOptions{
+		ClientSupportsDraftRestore: true,
+		CancelledBy:                h.taskCancellationActor(r.Context(), actorType, actorID),
+		UserInitiated:              true,
+		AuthorizeChat:              chatCancellationAuth(r, issue.WorkspaceID, conversation),
+	})
 	if err != nil {
+		if errors.Is(err, chataccess.ErrInvisible) || errors.Is(err, chataccess.ErrForbidden) {
+			chatAccessError(w, err)
+			return
+		}
 		slog.Warn("cancel task failed", "task_id", taskID, "error", err)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
+	task := &result.Task
 	slog.Info("task cancelled by user", "task_id", taskID, "issue_id", uuidToString(task.IssueID))
 	resp := taskToResponse(*task, workspaceID)
 	// Keep this issue-scoped surface consistent with the list endpoints so a
@@ -5625,9 +5653,21 @@ func (h *Handler) ListTasksByIssue(w http.ResponseWriter, r *http.Request) {
 			rows = rows[:familyActiveRunCap]
 			w.Header().Set(HeaderActiveRunsTruncated, "true")
 		}
-		summaries := make([]ActiveRunSummary, len(rows))
+		ids := make([]pgtype.UUID, len(rows))
 		for i, row := range rows {
-			summaries[i] = ActiveRunSummary{
+			ids[i] = row.TaskID
+		}
+		private, err := h.readableChatTaskIDs(r, issue.WorkspaceID, ids)
+		if err != nil {
+			chatAccessError(w, err)
+			return
+		}
+		summaries := make([]ActiveRunSummary, 0, len(rows))
+		for _, row := range rows {
+			if allowed, protected := private[row.TaskID]; protected && !allowed {
+				continue
+			}
+			summaries = append(summaries, ActiveRunSummary{
 				TaskID:  uuidToString(row.TaskID),
 				IssueID: uuidToString(row.IssueID),
 				// Rows span several issues here, so each one has to carry the
@@ -5638,7 +5678,7 @@ func (h *Handler) ListTasksByIssue(w http.ResponseWriter, r *http.Request) {
 				Status:          row.Status,
 				CreatedAt:       timestampToString(row.CreatedAt),
 				StartedAt:       timestampToPtr(row.StartedAt),
-			}
+			})
 		}
 		// No attribution hydration either: it was the single largest field on
 		// the old payload and needed its own query, and "on behalf of whom" is
@@ -5659,7 +5699,22 @@ func (h *Handler) ListTasksByIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tasks = visibleTaskHistory(tasks)
+	ids := make([]pgtype.UUID, len(tasks))
+	for i, t := range tasks {
+		ids[i] = t.ID
+	}
+	private, err := h.readableChatTaskIDs(r, issue.WorkspaceID, ids)
+	if err != nil {
+		chatAccessError(w, err)
+		return
+	}
+	visible := tasks[:0]
+	for _, t := range tasks {
+		if allowed, protected := private[t.ID]; !protected || allowed {
+			visible = append(visible, t)
+		}
+	}
+	tasks = visibleTaskHistory(visible)
 	resp := make([]AgentTaskResponse, len(tasks))
 	for i, t := range tasks {
 		resp[i] = taskToResponse(t, workspaceID)
@@ -5783,6 +5838,10 @@ func (h *Handler) ListTaskMessagesByUser(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if r.Header.Get("X-Actor-Source") == "task_token" && uuidToString(taskUUID) != r.Header.Get("X-Task-ID") {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
 	task, err := h.Queries.GetAgentTask(r.Context(), taskUUID)
 	if err != nil {
 		if !isNotFound(err) {
@@ -5809,6 +5868,17 @@ func (h *Handler) ListTaskMessagesByUser(w http.ResponseWriter, r *http.Request)
 	if wsID == "" || wsID != middleware.WorkspaceIDFromContext(r.Context()) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
+	}
+
+	conversation, err := chataccess.TaskConversation(r.Context(), h.Queries, task)
+	if err != nil {
+		chatAccessError(w, err)
+		return
+	}
+	if conversation.Valid {
+		if _, ok := h.authorizeChatRequest(w, r, parseUUID(wsID), conversation); !ok {
+			return
+		}
 	}
 
 	var (

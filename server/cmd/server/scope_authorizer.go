@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/chataccess"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -15,9 +18,11 @@ import (
 // authorizer. Declared as an interface so the authorizer can be unit tested
 // with an in-memory fake (no DB required).
 type scopeAuthQuerier interface {
+	chataccess.Querier
 	GetAgentTask(ctx context.Context, id pgtype.UUID) (db.AgentTaskQueue, error)
 	GetIssue(ctx context.Context, id pgtype.UUID) (db.Issue, error)
 	GetChatSession(ctx context.Context, id pgtype.UUID) (db.ChatSession, error)
+	GetChatProtectedTask(context.Context, pgtype.UUID) (db.ChatProtectedTask, error)
 }
 
 // dbScopeAuthorizer implements realtime.ScopeAuthorizer for the per-task and
@@ -62,6 +67,20 @@ func (a *dbScopeAuthorizer) AuthorizeScope(ctx context.Context, userID, workspac
 		if err != nil {
 			return scopeLookupErr(err)
 		}
+		conversation, err := chataccess.TaskConversation(ctx, a.q, task)
+		if err != nil {
+			if errors.Is(err, chataccess.ErrInvisible) {
+				return false, nil
+			}
+			return false, err
+		}
+		if conversation.Valid {
+			_, err := chataccess.Read(ctx, a.q, mustParsedUser(userID), wsUUID, conversation)
+			if errors.Is(err, chataccess.ErrInvisible) {
+				return false, nil
+			}
+			return err == nil, err
+		}
 		// Issue tasks: visible to any workspace member.
 		if task.IssueID.Valid {
 			issue, err := a.q.GetIssue(ctx, task.IssueID)
@@ -70,43 +89,68 @@ func (a *dbScopeAuthorizer) AuthorizeScope(ctx context.Context, userID, workspac
 			}
 			return issue.WorkspaceID == wsUUID, nil
 		}
-		// Chat tasks: only the chat session's creator may subscribe, mirroring
-		// the HTTP layer's creator-only access on chat resources.
-		if task.ChatSessionID.Valid {
-			sess, err := a.q.GetChatSession(ctx, task.ChatSessionID)
-			if err != nil {
-				return scopeLookupErr(err)
-			}
-			if sess.WorkspaceID != wsUUID {
-				return false, nil
-			}
-			uidUUID, err := util.ParseUUID(userID)
-			if err != nil || sess.CreatorID != uidUUID {
-				return false, nil
-			}
-			return true, nil
-		}
 		return false, nil
 	case realtime.ScopeChat:
-		sess, err := a.q.GetChatSession(ctx, idUUID)
+		uid, err := util.ParseUUID(userID)
 		if err != nil {
-			return scopeLookupErr(err)
-		}
-		if sess.WorkspaceID != wsUUID {
 			return false, nil
 		}
-		// Chat sessions are private to their creator (see handler/chat.go:
-		// GetChatSession / SendChatMessage / MarkChatSessionRead all enforce
-		// CreatorID == userID). The realtime layer must not weaken this:
-		// otherwise any workspace member who learns a session_id could
-		// subscribe to chat:message / chat:done / chat:session_read for a
-		// peer's private chat.
-		uidUUID, err := util.ParseUUID(userID)
-		if err != nil || sess.CreatorID != uidUUID {
+		_, err = chataccess.Read(ctx, a.q, uid, wsUUID, idUUID)
+		if errors.Is(err, chataccess.ErrInvisible) {
 			return false, nil
 		}
-		return true, nil
+		return err == nil, err
 	default:
 		return false, nil
 	}
+}
+
+func mustParsedUser(userID string) pgtype.UUID {
+	id, _ := util.ParseUUID(userID)
+	return id
+}
+
+// AuthorizeDelivery also covers old clients without subscribe frames and frames
+// retained by a relay before a membership change. No payload is trusted as ACL.
+func (a *dbScopeAuthorizer) AuthorizeDelivery(ctx context.Context, userID, workspaceID string, frame []byte) (bool, error) {
+	var f struct {
+		Type           string `json:"type"`
+		ConversationID string `json:"conversation_id"`
+		TaskID         string `json:"task_id"`
+		WorkspaceID    string `json:"workspace_id"`
+		RecipientID    string `json:"recipient_id"`
+	}
+	if err := json.Unmarshal(frame, &f); err != nil {
+		return false, err
+	}
+	if f.Type == "chat:access_revoked" || f.Type == "chat:session_deleted" {
+		return f.RecipientID != "" && f.RecipientID == userID, nil
+	}
+	if f.ConversationID != "" {
+		if f.TaskID != "" {
+			id, err := util.ParseUUID(f.TaskID)
+			if err != nil {
+				return false, nil
+			}
+			task, err := a.q.GetAgentTask(ctx, id)
+			if err != nil {
+				return scopeLookupErr(err)
+			}
+			conversation, err := chataccess.TaskConversation(ctx, a.q, task)
+			if err != nil || util.UUIDToString(conversation) != f.ConversationID {
+				return false, nil
+			}
+		}
+		return a.AuthorizeScope(ctx, userID, f.WorkspaceID, realtime.ScopeChat, f.ConversationID)
+	}
+	if strings.HasPrefix(f.Type, "chat:") {
+		return false, nil
+	}
+	if strings.HasPrefix(f.Type, "task:") {
+		if f.TaskID == "" {
+			return false, nil
+		}
+		return a.AuthorizeScope(ctx, userID, workspaceID, realtime.ScopeTask, f.TaskID)
+	}
+	return true, nil
 }
