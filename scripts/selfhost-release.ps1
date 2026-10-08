@@ -15,7 +15,7 @@ function Invoke-Native([string]$File, [string[]]$Arguments) {
     return $result
 }
 function Inspect-Image([string]$Reference) {
-    $items = (Invoke-Native docker @('image', 'inspect', '--platform', $Platform, $Reference)) -join "`n" | ConvertFrom-Json
+    $items = (Invoke-Native docker @('image', 'inspect', $Reference)) -join "`n" | ConvertFrom-Json
     return $items[0]
 }
 function Write-Utf8([string]$Path, [string]$Content) {
@@ -74,7 +74,14 @@ try {
     # Resolve the upstream database once, then freeze its local image ID too.
     [void](Invoke-Native docker @('pull', '--platform', $Platform, 'pgvector/pgvector:pg17'))
     $db = Inspect-Image 'pgvector/pgvector:pg17'
-    if ("$($db.Os)/$($db.Architecture)" -ne $Platform) { throw 'Wrong database platform' }
+    # Containerd's platform-specific manifest ID may not resolve as a local
+    # image. Keep the unqualified index/config ID, and validate the selected
+    # architecture by actually running the requested platform.
+    $expectedArch = if ($Platform -eq 'linux/amd64') { 'x86_64' } else { 'aarch64' }
+    $dbArch = (Invoke-Native docker @('run', '--rm', '--platform', $Platform,
+        '--entrypoint', 'uname', $db.Id, '-m')).Trim()
+    if ($dbArch -ne $expectedArch) { throw 'Wrong database platform' }
+    [void](Inspect-Image $db.Id)
     $images['database'] = [ordered]@{
         tag = 'pgvector/pgvector:pg17'; image_id = $db.Id; repo_digests = @($db.RepoDigests)
         platform = $Platform; deploy_reference = $db.Id; digest_kind = 'docker-image-id'
@@ -120,7 +127,7 @@ try {
     }
     if ($ExportImages) {
         $archive = Join-Path $out 'images.tar'
-        [void](Invoke-Native docker @('save', '--platform', $Platform, '--output', $archive, $images.backend.tag, $images.web.tag, $images.database.tag))
+        [void](Invoke-Native docker @('save', '--output', $archive, $images.backend.tag, $images.web.tag, $images.database.tag))
         $manifest['archive'] = @{ file = 'images.tar'; sha256 = (Get-FileHash $archive).Hash.ToLowerInvariant() }
     }
     if ($Smoke) {
