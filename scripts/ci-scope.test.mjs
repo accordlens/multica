@@ -78,7 +78,7 @@ test("missing, malformed and unsupported filter results fail closed", () => {
 // Read the production wiring without installing workspace dependencies in the
 // lightweight changes job. These fields deliberately use single-line syntax;
 // unsupported formatting fails the assertions instead of being silently ignored.
-const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const jobSource = workflow.slice(workflow.indexOf("\njobs:\n") + "\njobs:\n".length);
 const headings = [...jobSource.matchAll(/^  ([\w-]+):$/gm)];
 const jobs = Object.fromEntries(headings.map((match, index) => [
