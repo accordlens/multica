@@ -44,10 +44,13 @@ and writes `release-artifacts/` (ignored by Git and Docker build context):
 - `images.tar`: backend, web and database, with archive SHA256 in the manifest
   when `-ExportImages` is selected.
 
-Local **image IDs are config digests**, distinct from Buildx OCI manifest
-digests and registry `RepoDigests`. Local app builds need no push and may have
+Docker **image IDs depend on the image store**: classic stores identify configs;
+containerd stores may identify manifests. The release records the Docker ID,
+Buildx config digest and OCI manifest digest separately. App builds need no push and may have
 empty `RepoDigests`; this is recorded honestly. Offline Compose uses image IDs
 with `pull_policy: never`, so it cannot silently substitute an official image.
+Use the same Docker engine/image-store mode for offline transfer; the load
+verification fails if IDs change. Building on the target PC avoids that mismatch.
 Keep the complete release bundle to reproduce a selected deployment: rebuilding
 the same source against floating upstream base tags is not guaranteed to produce
 byte-identical images. To rerun a build, choose a new directory under
@@ -196,7 +199,7 @@ the resulting repository manifest digests, and put complete
 `repository@sha256:<digest>` references into `release.env`. Pull those exact
 references before `up --pull never`. The release override replaces the entire
 image field for backend/web/database, so it never appends `:MULTICA_IMAGE_TAG`.
-Do not substitute a local image config ID for a remote manifest digest.
+Do not substitute an arbitrary local image ID for a remote manifest digest.
 See [Docker image references](https://docs.docker.com/reference/compose-file/services/#image)
 and [pull policy](https://docs.docker.com/reference/compose-file/services/#pull_policy).
 

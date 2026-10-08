@@ -66,8 +66,9 @@ try {
         $metadata = Get-Content $metadataFile -Raw | ConvertFrom-Json
         $images[$component] = [ordered]@{
             tag = $tag; image_id = $info.Id; manifest_digest = $metadata.'containerimage.digest'
+            config_digest = $metadata.'containerimage.config.digest'
             repo_digests = @($info.RepoDigests); platform = $Platform
-            deploy_reference = $info.Id; digest_kind = 'local-image-config'
+            deploy_reference = $info.Id; digest_kind = 'docker-image-id'
         }
     }
     # Resolve the upstream database once, then freeze its local image ID too.
@@ -76,7 +77,7 @@ try {
     if ("$($db.Os)/$($db.Architecture)" -ne $Platform) { throw 'Wrong database platform' }
     $images['database'] = [ordered]@{
         tag = 'pgvector/pgvector:pg17'; image_id = $db.Id; repo_digests = @($db.RepoDigests)
-        platform = $Platform; deploy_reference = $db.Id; digest_kind = 'local-image-config'
+        platform = $Platform; deploy_reference = $db.Id; digest_kind = 'docker-image-id'
     }
     # Reuse the backend builder's source/toolchain for the native Windows runtime.
     $cliDirectory = Join-Path $out 'cli-windows-amd64'

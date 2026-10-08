@@ -36,7 +36,7 @@ test('missing release selections fail closed instead of using upstream/latest', 
   }
 });
 
-test('offline release accepts local image config IDs without attaching a tag', () => {
+test('offline release accepts local image IDs without attaching a tag', () => {
   const offline = { ...env, MULTICA_RELEASE_BACKEND_IMAGE: digest, MULTICA_RELEASE_WEB_IMAGE: digest,
     MULTICA_RELEASE_DATABASE_IMAGE: digest };
   const result = spawnSync('docker', args, { env: offline, encoding: 'utf8' });

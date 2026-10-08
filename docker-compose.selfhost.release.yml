@@ -1,6 +1,6 @@
 # Use with the base self-host file ONLY, never with the development build file.
 # Complete references replace image fields, so no :TAG is appended to a digest.
-# Local releases use immutable Docker image IDs (config digests). Registry
+# Local releases use immutable Docker image IDs. Registry
 # releases may use repository@sha256:manifest-digest after publication approval.
 services:
   postgres:
