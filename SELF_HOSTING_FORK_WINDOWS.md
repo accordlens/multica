@@ -15,7 +15,7 @@ restore and phone LTE/PWA acceptance must be tested on the actual PC.
 
 Install Git, PowerShell 7 (`pwsh`) and Docker Desktop/WSL2; enable Linux containers
 and verify `docker version`, `docker compose version`, `docker buildx version`.
-Use Compose 2.24 or newer. No registry account, panel, make, host Go or host Node
+Use Docker Engine 28 or newer (platform-specific inspect/export) and Compose 2.24 or newer. No registry account, panel, make, host Go or host Node
 is required. Docker builds use Go 1.26 (at least 1.26.6 from `server/go.mod`),
 Node 22 and repository pnpm 10.28.2. Allow enough disk/RAM for the Next.js and Go
 builds; build resources have not been sized for Patryk's PC yet.
@@ -77,7 +77,7 @@ docker load --input ./release-artifacts/images.tar
 if ($LASTEXITCODE -ne 0) { throw 'Image load failed' }
 foreach ($component in 'backend','web','database') {
     $image = $m.images.$component
-    $loaded = docker image inspect $image.image_id | ConvertFrom-Json
+    $loaded = docker image inspect --platform $m.platform $image.image_id | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0 -or "$($loaded[0].Os)/$($loaded[0].Architecture)" -ne $m.platform) {
         throw "Missing/wrong image: $component"
     }

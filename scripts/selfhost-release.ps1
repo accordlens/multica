@@ -15,7 +15,7 @@ function Invoke-Native([string]$File, [string[]]$Arguments) {
     return $result
 }
 function Inspect-Image([string]$Reference) {
-    $items = (Invoke-Native docker @('image', 'inspect', $Reference)) -join "`n" | ConvertFrom-Json
+    $items = (Invoke-Native docker @('image', 'inspect', '--platform', $Platform, $Reference)) -join "`n" | ConvertFrom-Json
     return $items[0]
 }
 function Write-Utf8([string]$Path, [string]$Content) {
@@ -120,7 +120,7 @@ try {
     }
     if ($ExportImages) {
         $archive = Join-Path $out 'images.tar'
-        [void](Invoke-Native docker @('save', '--output', $archive, $images.backend.tag, $images.web.tag, $images.database.tag))
+        [void](Invoke-Native docker @('save', '--platform', $Platform, '--output', $archive, $images.backend.tag, $images.web.tag, $images.database.tag))
         $manifest['archive'] = @{ file = 'images.tar'; sha256 = (Get-FileHash $archive).Hash.ToLowerInvariant() }
     }
     if ($Smoke) {
