@@ -20,6 +20,7 @@ dist-electron
 # env
 .env*
 !.env.example
+!.env.windows.example
 # Desktop production config is public (backend URL, etc.) — track it so
 # `pnpm package` produces a release-ready build without extra setup.
 !apps/desktop/.env.production
@@ -80,5 +81,6 @@ __pycache__/
 *.pyc
 perf-report/
 release-artifacts/
+selfhost-backups/
 # The production example is a tracked template; `.env*` above would hide it.
 !apps/mobile/.env.production.example

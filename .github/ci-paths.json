@@ -140,6 +140,10 @@
     "scripts/ci-scope.test.mjs"
   ],
   "selfhost": [
+    ".env.windows.example",
+    "docker-compose.selfhost.windows.yml",
+    "scripts/selfhost-data.ps1",
+    "scripts/selfhost-data.test.ps1",
     "Dockerfile",
     "Dockerfile.web",
     ".dockerignore",

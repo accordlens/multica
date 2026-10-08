@@ -948,6 +948,9 @@ jobs:
       - name: Build Linux amd64 images, Windows CLI, and smoke isolated Compose
         shell: pwsh
         run: ./scripts/selfhost-release.ps1 -Platform linux/amd64 -Smoke
+      - name: Replay isolated backup and recovery with binary data
+        shell: pwsh
+        run: ./scripts/selfhost-data.test.ps1
       - name: Retain release evidence (no registry publication)
         if: always()
         uses: actions/upload-artifact@v4
@@ -958,6 +961,7 @@ jobs:
             release-artifacts/*-build.json
             release-artifacts/release.env
             release-artifacts/cli-windows-amd64/multica.exe
+            release-artifacts/data test */verification.json
           if-no-files-found: error
           retention-days: 3
 

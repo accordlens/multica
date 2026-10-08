@@ -15,7 +15,7 @@ restore and phone LTE/PWA acceptance must be tested on the actual PC.
 
 Install Git, PowerShell 7 (`pwsh`) and Docker Desktop/WSL2; enable Linux containers
 and verify `docker version`, `docker compose version`, `docker buildx version`.
-Use Compose 2.24 or newer. No registry account, panel, make, host Go or host Node
+Use Compose 2.24.4 or newer. No registry account, panel, make, host Go or host Node
 is required. Docker builds use Go 1.26 (at least 1.26.6 from `server/go.mod`),
 Node 22 and repository pnpm 10.28.2. Allow enough disk/RAM for the Next.js and Go
 builds; build resources have not been sized for Patryk's PC yet.
@@ -102,6 +102,11 @@ establish the endpoint. CLI/API runtime compatibility still requires the
 ACCO-56 end-to-end scenario; matching SHA is the build contract.
 
 ## Pilot configuration and launch
+
+For the Windows PC, follow [Windows operations](SELF_HOSTING_WINDOWS_OPERATIONS.md)
+for independent test/pilot env and ports, the last Windows override, backup/restore,
+login/reboot and listener evidence. Baseline commands below explain the release
+contract; they do not run independent test and pilot concurrently.
 
 Create an empty **test** instance first. The following writes a local, ignored
 secret file once; it refuses to overwrite an existing configuration. Replace

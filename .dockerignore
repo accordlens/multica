@@ -45,3 +45,4 @@ coverage
 /deploy/
 /scripts/
 /release-artifacts/
+/selfhost-backups/
