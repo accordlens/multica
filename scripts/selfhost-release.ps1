@@ -138,7 +138,7 @@ try {
             $name = $match.Groups[1].Value
             if (-not $savedEnvironment.ContainsKey($name)) {
                 $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
-                [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+                Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
             }
         }
         $composeArgs = @('compose', '--project-name', $project, '--env-file', $smokeEnv,
@@ -162,12 +162,17 @@ try {
     try {
         if ($smokeStarted) {
             # Only this script's unique disposable project and volumes are removed.
-            [void](Invoke-Native docker ($composeArgs + @('down', '--volumes', '--remove-orphans')))
-            Remove-Item $smokeEnv -ErrorAction SilentlyContinue
+            try {
+                [void](Invoke-Native docker ($composeArgs + @('down', '--volumes', '--remove-orphans')))
+            } finally { Remove-Item $smokeEnv -ErrorAction SilentlyContinue }
         }
     } finally {
         foreach ($name in $savedEnvironment.Keys) {
-            [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')
+            if ($null -eq $savedEnvironment[$name]) {
+                Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+            } else {
+                [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')
+            }
         }
         Pop-Location
     }
