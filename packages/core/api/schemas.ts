@@ -3710,3 +3710,12 @@ export const RuntimeProfileSchema = z
     runtime_type: profile.runtime_type || profile.protocol_family,
   }));
 export const RuntimeProfileListSchema = z.array(RuntimeProfileSchema);
+
+// Fail closed when a newer server sends an unknown/malformed capability.
+export const ChatCapabilitiesSchema = z.object({
+ protocol:z.literal(2),
+ team_enabled:z.boolean().default(false),
+ supported_kinds:z.array(z.enum(["agent_dm","public_channel","private_channel","dm","self_dm","group_dm"])).default([]),
+ private_download_identity_required:z.literal(true),
+ limits:z.object({message_codepoints:z.number().int().positive(),history_default:z.number().int().positive(),history_max:z.number().int().positive(),group_members:z.number().int().positive(),attachments:z.number().int().positive(),upload_bytes:z.number().int().positive()}),
+}).loose();

@@ -87,12 +87,10 @@ func TestEnqueueChatTaskSealsMessageStrandedByPredecessorReply(t *testing.T) {
 	}
 }
 
-// TestEnqueueChatTaskSealsMessageWhenReplyCommitsDuringEnqueue closes the same
-// boundary one level tighter: the predecessor's reply row commits on another
-// connection AFTER the enqueue transaction has begun, so the seal statement's
-// READ COMMITTED snapshot is the first thing in that transaction to see it.
-// Same prior art as the media-deferral race above.
-func TestEnqueueChatTaskSealsMessageWhenReplyCommitsDuringEnqueue(t *testing.T) {
+// C2 serializes reply appends with enqueue through the conversation sequence
+// lock. A concurrent predecessor reply waits until sealing commits; it must
+// neither strand the waiting input nor change either task's immutable batch.
+func TestEnqueueChatTaskSealsBeforeConcurrentReply(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
@@ -111,27 +109,26 @@ func TestEnqueueChatTaskSealsMessageWhenReplyCommitsDuringEnqueue(t *testing.T) 
 	markChannelTaskRunning(t, ctx, pool, first.ID)
 	stranded := appendChannelUserMessage(t, ctx, pool, chatSessionID, "挺好的 正常了")
 
-	injected := false
+	var replyErr error
 	racing := &TaskService{
 		Queries: q,
 		Bus:     events.New(),
 		TxStarter: &raceInjectTxStarter{pool: pool, inject: func() {
-			// Turn 1's reply row, committed by a concurrent completion.
-			if _, err := pool.Exec(ctx, `
-				INSERT INTO chat_message (chat_session_id, role, content, task_id)
-				VALUES ($1, 'assistant', '通了。', $2)`, chatSessionID, first.ID); err != nil {
-				t.Errorf("inject predecessor reply: %v", err)
-				return
-			}
-			injected = true
+			replyErr = probeUnderLock(ctx, pool,
+				`INSERT INTO chat_message(chat_session_id,role,content)
+				 VALUES($1,'assistant','concurrent reply')`, chatSessionID)
 		}},
 	}
 	next, err := racing.EnqueueChatTask(ctx, session, initiator, false)
 	if err != nil {
 		t.Fatalf("EnqueueChatTask (turn 2): %v", err)
 	}
-	if !injected {
-		t.Fatal("race injection did not run")
+	if !isLockTimeout(replyErr) {
+		t.Fatalf("reply append must wait for enqueue's conversation lock: %v", replyErr)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO chat_message(chat_session_id,role,content,task_id)
+		VALUES($1,'assistant','concurrent reply',$2)`, chatSessionID, first.ID); err != nil {
+		t.Fatalf("append reply after enqueue commit: %v", err)
 	}
 
 	var owner pgtype.UUID
@@ -141,6 +138,9 @@ func TestEnqueueChatTaskSealsMessageWhenReplyCommitsDuringEnqueue(t *testing.T) 
 	if !owner.Valid || owner.Bytes != next.ID.Bytes {
 		t.Fatalf("waiting user message task_id = %q, want the new turn %q",
 			util.UUIDToString(owner), util.UUIDToString(next.ID))
+	}
+	if sealedInputCount(t, ctx, pool, first.ID) != 1 || sealedInputCount(t, ctx, pool, next.ID) != 1 {
+		t.Fatal("concurrent reply changed immutable input batches")
 	}
 }
 

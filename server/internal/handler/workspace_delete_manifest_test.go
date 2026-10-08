@@ -48,10 +48,17 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"channel_reply_delivery":             workspaceDelete,
 	"channel_task_delivery":              workspaceDelete,
 	"channel_user_binding":               workspaceDelete,
+	"chat_draft":                         workspaceDelete,
 	"chat_draft_restore":                 workspaceDelete,
+	"chat_event":                         workspaceDelete,
 	"chat_message":                       workspaceDelete,
+	"chat_participant":                   workspaceDelete,
 	"chat_pinned_agent":                  workspaceDelete,
+	"chat_protected_object":              workspaceDeleteKeep, // Security tombstones deny leaked URLs after best-effort object GC.
+	"chat_protected_task":                workspaceDeleteKeep, // A deleted conversation never turns its task output into a public run.
+	"chat_read_state":                    workspaceDelete,
 	"chat_session":                       workspaceDelete,
+	"chat_thread_state":                  workspaceDelete,
 	"client_usage_daily":                 workspaceDeleteDetach,
 	"comment":                            workspaceDelete,
 	"comment_reaction":                   workspaceDelete,
