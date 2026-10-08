@@ -52,6 +52,12 @@ RUN pnpm --filter @multica/web build
 # --- Runtime ---
 FROM node:22-alpine AS runner
 
+ARG NEXT_PUBLIC_APP_VERSION=dev
+ARG COMMIT=unknown
+LABEL org.opencontainers.image.source="https://github.com/accordlens/multica" \
+      org.opencontainers.image.revision=$COMMIT \
+      org.opencontainers.image.version=$NEXT_PUBLIC_APP_VERSION
+
 WORKDIR /app
 
 # Alpine openssl security fixes (CVE-2026-63073, CVE-2026-75803).

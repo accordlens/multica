@@ -23,8 +23,21 @@ RUN cd server && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/maintenance ./cm
 RUN cd server && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/backfill_task_usage_hourly ./cmd/backfill_task_usage_hourly
 RUN cd server && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/backfill_codex_usage_cache ./cmd/backfill_codex_usage_cache
 
-# --- Runtime stage ---
+# Export the matching native Windows CLI without adding it to the server image.
+FROM builder AS windows-cli-build
+RUN cd server && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o bin/multica.exe ./cmd/multica
+
+FROM scratch AS windows-cli
+COPY --from=windows-cli-build /src/server/bin/multica.exe /multica.exe
+
+# --- Runtime stage (keep last: the default build is the backend) ---
 FROM alpine:3.21
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+LABEL org.opencontainers.image.source="https://github.com/accordlens/multica" \
+      org.opencontainers.image.revision=$COMMIT \
+      org.opencontainers.image.version=$VERSION
 
 RUN apk add --no-cache ca-certificates tzdata
 

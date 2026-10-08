@@ -44,3 +44,4 @@ coverage
 /.github/
 /deploy/
 /scripts/
+/release-artifacts/
