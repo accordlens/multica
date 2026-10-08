@@ -13,6 +13,7 @@ import {
 import type { StorageAdapter, Workspace } from "../types";
 import { workspaceKeys } from "../workspace/queries";
 import { clearClientSessionData } from "./session-cleanup";
+import { registerPrivateCacheCleanup, clearPrivateCaches } from "./private-cache";
 
 function makeStorage(
   initial: Record<string, string> = {},
@@ -142,4 +143,12 @@ describe("clearClientSessionData", () => {
 
     expect(storage.snapshot()).toEqual({});
   });
+});
+
+it("releases retained bytes on revoke and on logout before account B",()=>{
+ const release=vi.fn();const unregister=registerPrivateCacheCleanup(release);
+ clearPrivateCaches();expect(release).toHaveBeenCalledTimes(1);
+ const cache=new QueryClient();cache.setQueryData(["attachment-inline-blob","private"],new Blob(["A private"]));
+ clearClientSessionData(cache,makeStorage());expect(release).toHaveBeenCalledTimes(2);expect(cache.getQueryCache().getAll()).toHaveLength(0);
+ unregister();
 });

@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/multica-ai/multica/server/internal/events"
+	"github.com/multica-ai/multica/server/internal/testutil"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
@@ -174,6 +176,10 @@ func TestProjectOutbound_TaskFailedKeepsErrorInternal(t *testing.T) {
 }
 
 func TestTaskFailedBroadcast_DeliversErrorOnlyInProcess(t *testing.T) {
+	fx := testutil.New(testPool, testWorkspaceID, testUserID)
+	runtimeID := fx.Runtime(t, "projection")
+	agentID := fx.Agent(t, "projection", runtimeID)
+	taskID := fx.Task(t, agentID, testutil.Cols{"issue_id": fx.Issue(t, "projection"), "status": "failed", "runtime_id": runtimeID})
 	bus := events.New()
 	fb := &fakeBroadcaster{}
 	payload := map[string]any{
@@ -188,10 +194,11 @@ func TestTaskFailedBroadcast_DeliversErrorOnlyInProcess(t *testing.T) {
 		m, _ := e.Payload.(map[string]any)
 		inProcessError, _ = m["error"].(string)
 	})
-	registerListeners(bus, fb)
+	registerListeners(bus, fb, db.New(testPool))
 	bus.Publish(events.Event{
 		Type:        protocol.EventTaskFailed,
-		WorkspaceID: "workspace-1",
+		WorkspaceID: testWorkspaceID,
+		TaskID:      taskID,
 		Payload:     payload,
 	})
 

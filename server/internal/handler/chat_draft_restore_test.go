@@ -191,6 +191,7 @@ func TestDeleteChatSession_PrunesDraftRestores(t *testing.T) {
 	agentID := createHandlerTestAgent(t, "DraftRestorePruneAgent", []byte("[]"))
 	sessionID := createHandlerTestChatSession(t, agentID)
 	seedDraftRestore(t, sessionID, "unconsumed prompt", nil)
+	seedTeamChatCleanupState(t, sessionID)
 
 	req := withURLParam(newRequest(http.MethodDelete, "/api/chat/sessions/"+sessionID, nil), "sessionId", sessionID)
 	req = withChatTestWorkspaceCtx(t, req)
@@ -209,6 +210,7 @@ func TestDeleteChatSession_PrunesDraftRestores(t *testing.T) {
 	if count != 0 {
 		t.Errorf("draft restores must be pruned with their session, count = %d", count)
 	}
+	assertTeamChatStatePruned(t, sessionID)
 }
 
 func countDraftRestores(t *testing.T, sessionID string) int {
@@ -239,6 +241,7 @@ func TestDeleteAgentRuntime_PrunesDraftRestoresOfSystemAgentSessions(t *testing.
 	}
 	sessionID := createHandlerTestChatSession(t, systemAgent)
 	seedDraftRestore(t, sessionID, "prompt stranded by the agent cascade", nil)
+	seedTeamChatCleanupState(t, sessionID)
 
 	w := httptest.NewRecorder()
 	req := withURLParam(newRequest(http.MethodDelete, "/api/runtimes/"+runtimeID, nil), "runtimeId", runtimeID)
@@ -253,6 +256,7 @@ func TestDeleteAgentRuntime_PrunesDraftRestoresOfSystemAgentSessions(t *testing.
 	if n := countDraftRestores(t, sessionID); n != 0 {
 		t.Errorf("draft restores of a cascade-deleted session must be pruned, count = %d", n)
 	}
+	assertTeamChatStatePruned(t, sessionID)
 }
 
 // The mirror case, and the regression for the cleanup scope: an ARCHIVED USER
@@ -347,6 +351,7 @@ func TestDeleteWorkspace_PrunesDraftRestoresOfCascadedSessions(t *testing.T) {
 		t.Fatalf("create chat session: %v", err)
 	}
 	seedDraftRestore(t, sessionID, "prompt stranded by the workspace cascade", nil)
+	seedTeamChatCleanupState(t, sessionID)
 
 	w := httptest.NewRecorder()
 	req := withURLParam(newRequest(http.MethodDelete, "/api/workspaces/"+wsID, nil), "id", wsID)
@@ -358,4 +363,5 @@ func TestDeleteWorkspace_PrunesDraftRestoresOfCascadedSessions(t *testing.T) {
 	if n := countDraftRestores(t, sessionID); n != 0 {
 		t.Errorf("draft restores of a workspace-cascaded session must be pruned, count = %d", n)
 	}
+	assertTeamChatStatePruned(t, sessionID)
 }

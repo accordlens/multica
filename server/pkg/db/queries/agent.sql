@@ -286,14 +286,23 @@ WHERE id = $1
 RETURNING *;
 
 -- name: ListAgentTasks :many
-SELECT * FROM agent_task_queue
-WHERE agent_id = @agent_id
+SELECT atq.* FROM agent_task_queue atq
+WHERE atq.agent_id = @agent_id
+  AND ((atq.chat_session_id IS NULL AND NOT EXISTS (
+      SELECT 1 FROM chat_protected_task p WHERE p.task_id=atq.id AND p.is_private
+    )) OR EXISTS (
+      SELECT 1 FROM chat_session s
+      JOIN member m ON m.workspace_id=s.workspace_id AND m.user_id = @viewer_user_id
+      JOIN "user" u ON u.id=m.user_id AND u.deactivated_at IS NULL
+      LEFT JOIN chat_participant p ON p.chat_session_id=s.id AND p.actor_id=m.user_id AND p.actor_type='member' AND p.revoked_at IS NULL
+      WHERE s.id=COALESCE(atq.chat_session_id,(SELECT scope.chat_session_id FROM chat_protected_task scope WHERE scope.task_id=atq.id AND scope.is_private)) AND (s.kind='public_channel' OR (s.kind='agent_dm' AND s.creator_id=m.user_id AND p.actor_id IS NOT NULL) OR (s.kind IN ('private_channel','dm','self_dm','group_dm') AND p.actor_id IS NOT NULL))
+  ))
   -- Apply visibility before LIMIT so hidden fallbacks cannot end a page early.
   -- Keep this predicate in sync with handler.visibleTaskHistory.
   AND NOT (escalation_for_task_id IS NOT NULL AND started_at IS NULL
            AND status IN ('deferred', 'cancelled'))
-  AND (created_at, id) < (@before_created_at::timestamptz, @before_id::uuid)
-ORDER BY created_at DESC, id DESC
+  AND (atq.created_at, atq.id) < (@before_created_at::timestamptz, @before_id::uuid)
+ORDER BY atq.created_at DESC, atq.id DESC
 LIMIT @page_limit;
 
 -- name: CreateAgentTask :one

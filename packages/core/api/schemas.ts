@@ -3710,3 +3710,22 @@ export const RuntimeProfileSchema = z
     runtime_type: profile.runtime_type || profile.protocol_family,
   }));
 export const RuntimeProfileListSchema = z.array(RuntimeProfileSchema);
+
+// Fail closed when a newer server sends an unknown/malformed capability.
+export const ChatCapabilitiesSchema = z.object({
+ protocol:z.literal(2),
+ team_enabled:z.boolean().default(false),
+ supported_kinds:z.array(z.enum(["agent_dm","public_channel","private_channel","dm","self_dm","group_dm"])).default([]),
+ private_download_identity_required:z.literal(true),
+ limits:z.object({message_codepoints:z.number().int().positive(),history_default:z.number().int().positive(),history_max:z.number().int().positive(),group_members:z.number().int().positive(),attachments:z.number().int().positive(),upload_bytes:z.number().int().positive()}),
+}).loose();
+
+const ChatKindV2Schema = z.enum(["agent_dm", "public_channel", "private_channel", "dm", "self_dm", "group_dm"]);
+export const ChatConversationV2Schema = z.object({
+ id:z.string().uuid(), workspace_id:z.string().uuid(),kind:ChatKindV2Schema,
+ name:z.string(),topic:z.string(),description:z.string(),revision:z.number().int().positive(),acl_version:z.number().int().positive(),last_message_seq:z.number().int().nonnegative(),
+}).loose();
+export const ChatMessagesV2Schema = z.object({
+ messages:z.array(z.object({id:z.string().uuid(),chat_session_id:z.string().uuid(),actor_type:z.enum(["member","agent","system"]),actor_id:z.string().uuid(),content:z.string(),message_seq:z.number().int().positive(),revision:z.number().int().positive(),root_message_id:z.string().uuid().nullable(),deleted:z.boolean(),created_at:z.string()})),
+ next_cursor:z.string(),snapshot_head:z.number().int().nonnegative(),
+}).loose();

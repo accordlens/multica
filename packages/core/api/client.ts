@@ -261,6 +261,9 @@ import {
   ChatPendingTaskSchema,
   ChatSessionListSchema,
   ChatSessionSchema,
+  ChatCapabilitiesSchema,
+  ChatConversationV2Schema,
+  ChatMessagesV2Schema,
   PrioritizeQueuedChatTaskResponseSchema,
   SendChatMessageResponseSchema,
   StartMikaOnboardingResponseSchema,
@@ -4001,6 +4004,20 @@ export class ApiClient {
   // Callers must only reach for this once the metadata refresh has shown
   // there is no signed URL: in the other modes the endpoint 302s to storage,
   // where CORS is not configured for a JS fetch.
+  async getChatConversationV2(id:string) {
+    const raw=await this.fetch<unknown>(`/api/chat/v2/conversations/${id}`);
+    return parseWithFallback(raw,ChatConversationV2Schema,null,{endpoint:"GET /api/chat/v2/conversations/:id"});
+  }
+  async getChatMessagesV2(id:string,before?:string) {
+    const raw=await this.fetch<unknown>(`/api/chat/v2/conversations/${id}/messages${before?`?before=${encodeURIComponent(before)}`:""}`);
+    return parseWithFallback(raw,ChatMessagesV2Schema,null,{endpoint:"GET /api/chat/v2/conversations/:id/messages"});
+  }
+
+  async getChatCapabilities() {
+    const raw=await this.fetch<unknown>("/api/chat/v2/capabilities");
+    return parseWithFallback(raw,ChatCapabilitiesSchema,null,{endpoint:"GET /api/chat/v2/capabilities"});
+  }
+
   async getAttachmentBlob(id: string): Promise<Blob> {
     const res = await this.fetchRaw(`/api/attachments/${id}/download`);
     return res.blob();

@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/chataccess"
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -196,6 +197,11 @@ func (h *Handler) attachmentToResponse(a db.Attachment, mode attachmentURLMode) 
 	if a.ChatMessageID.Valid {
 		s := uuidToString(a.ChatMessageID)
 		resp.ChatMessageID = &s
+	}
+	if a.ChatSessionID.Valid || a.ChatMessageID.Valid {
+		resp.URL = util.AttachmentDownloadPath(id)
+		resp.DownloadURL = resp.URL
+		resp.MarkdownURL = strings.TrimRight(h.cfg.PublicURL, "/") + resp.URL
 	}
 	return resp
 }
@@ -557,6 +563,16 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 			params.ChatSessionID = task.ChatSessionID
 		}
 
+		if params.ChatSessionID.Valid {
+			if params.IssueID.Valid || params.CommentID.Valid {
+				writeError(w, http.StatusBadRequest, "chat files cannot also belong to an issue")
+				return
+			}
+			if _, ok := h.authorizeChatRequest(w, r, params.WorkspaceID, params.ChatSessionID); !ok {
+				return
+			}
+			key = "private-chat/" + workspaceID + "/" + uuidToString(params.ChatSessionID) + "/" + filename
+		}
 		link, err := h.Storage.Upload(r.Context(), key, data, contentType, header.Filename)
 		if err != nil {
 			slog.Error("file upload failed", "error", err)
@@ -580,12 +596,35 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusForbidden, "invalid comment_id")
 				return
 			}
+		} else if params.ChatSessionID.Valid {
+			tx, beginErr := h.TxStarter.Begin(r.Context())
+			if beginErr != nil {
+				err = beginErr
+			} else {
+				defer tx.Rollback(r.Context())
+				qt := h.Queries.WithTx(tx)
+				_, err = qt.LockChatConversation(r.Context(), db.LockChatConversationParams{ID: params.ChatSessionID, WorkspaceID: params.WorkspaceID})
+				if err == nil {
+					_, err = chataccess.Read(r.Context(), qt, parseUUID(userID), params.WorkspaceID, params.ChatSessionID)
+				}
+				if err == nil {
+					att, err = qt.CreateAttachment(r.Context(), params)
+				}
+				if err == nil {
+					err = tx.Commit(r.Context())
+				}
+			}
 		} else {
 			att, err = wakeupWrite(h, r, func(q *db.Queries) (db.CreateAttachmentRow, error) {
 				return q.CreateAttachment(r.Context(), params)
 			})
 		}
 		if err != nil {
+			if params.ChatSessionID.Valid {
+				h.deleteS3Objects(r.Context(), []string{link})
+				chatAccessError(w, err)
+				return
+			}
 			slog.Error("failed to create attachment record", "error", err)
 			// S3 upload succeeded but DB record failed — still return the link
 			// so the file is usable. Log the error for investigation.
@@ -680,6 +719,15 @@ func (h *Handler) GetAttachmentByID(w http.ResponseWriter, r *http.Request) {
 	// stable path for a signature HERE, so honoring the capability would break
 	// the very flow that makes stable mode safe elsewhere.
 	resp := h.attachmentToResponse(att, attachmentURLModeSigned)
+	if att.ChatSessionID.Valid || att.ChatMessageID.Valid {
+		resp.DownloadURL = h.chatAttachmentCapabilityPath(r, att, false)
+		resp.AttachmentDownloadURL = h.chatAttachmentCapabilityPath(r, att, true)
+		if !h.recheckChatAttachment(w, r, att) {
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
 	// Token-mode clients use this authenticated endpoint to replace the
 	// auth-gated API path with a URL that native media elements can load.
 	// Assert the same storage.DownloadPresigner that resolveAttachmentDownloadMode
@@ -773,6 +821,9 @@ func (h *Handler) loadAttachmentForRequest(w http.ResponseWriter, r *http.Reques
 		return db.Attachment{}, false
 	}
 
+	if !h.authorizeChatAttachment(w, r, att) {
+		return db.Attachment{}, false
+	}
 	return att, true
 }
 
@@ -818,6 +869,12 @@ func (h *Handler) loadAttachmentForDownload(w http.ResponseWriter, r *http.Reque
 	if workspaceID == "" {
 		writeError(w, http.StatusNotFound, "attachment not found")
 		return db.Attachment{}, false
+	}
+	if att.ChatSessionID.Valid || att.ChatMessageID.Valid {
+		if !h.authorizeChatAttachment(w, r, att) {
+			return db.Attachment{}, false
+		}
+		return att, true
 	}
 	if h.MembershipCache.Get(r.Context(), userID, workspaceID) {
 		return att, true
@@ -965,8 +1022,49 @@ func (h *Handler) ServeLocalUpload(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	h.setAttachmentPreviewSecurityHeaders(w)
+	if h.Queries == nil {
+		http.NotFound(w, r)
+		return
+	}
 	key := strings.TrimPrefix(r.URL.Path, "/uploads/")
+	if key != path.Clean(key) || strings.Contains(key, "\\") {
+		http.NotFound(w, r)
+		return
+	}
+	protectedID, protectErr := h.Queries.GetChatProtectedObjectBySuffix(r.Context(), "/uploads/"+key)
+	if protectErr == nil {
+		att, err := h.Queries.GetAttachmentByIDOnly(r.Context(), protectedID)
+		if err != nil || !h.authorizeChatAttachment(w, r, att) {
+			if err != nil {
+				http.NotFound(w, r)
+			}
+			return
+		}
+		h.proxyAttachmentDownload(w, r, att, key, false)
+		return
+	}
+	if !errors.Is(protectErr, pgx.ErrNoRows) {
+		http.NotFound(w, r)
+		return
+	}
+	att, err := h.Queries.GetAttachmentByStorageSuffix(r.Context(), "/uploads/"+key)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		http.NotFound(w, r)
+		return
+	}
+	if err == nil && (att.ChatSessionID.Valid || att.ChatMessageID.Valid) {
+		if !h.authorizeChatAttachment(w, r, att) {
+			return
+		}
+		h.proxyAttachmentDownload(w, r, att, key, false)
+		return
+	}
+	// Never serve unregistered objects under the reserved chat prefix.
+	if strings.HasPrefix(key, "private-chat/") {
+		http.NotFound(w, r)
+		return
+	}
+	h.setAttachmentPreviewSecurityHeaders(w)
 	local.ServeFile(w, r, key)
 }
 
@@ -995,6 +1093,12 @@ func (h *Handler) proxyAttachmentDownload(w http.ResponseWriter, r *http.Request
 	}
 	defer reader.Close()
 
+	if !h.recheckChatAttachment(w, r, att) {
+		return
+	}
+	if att.ChatSessionID.Valid || att.ChatMessageID.Valid {
+		w = &chatAttachmentWriter{ResponseWriter: w, handler: h, request: r, attachment: att}
+	}
 	if att.ContentType != "" {
 		w.Header().Set("Content-Type", att.ContentType)
 	} else {
@@ -1024,6 +1128,45 @@ func (h *Handler) proxyAttachmentDownload(w http.ResponseWriter, r *http.Request
 
 	// Non-seekable backend: single-range fallback.
 	h.serveProxyRange(w, r, att, reader)
+}
+
+// Ongoing private streams recheck each outgoing chunk. A slow storage reader
+// cannot retain authorization after a revoke committed while it was blocked.
+type chatAttachmentWriter struct {
+	http.ResponseWriter
+	handler    *Handler
+	request    *http.Request
+	attachment db.Attachment
+}
+
+func (w *chatAttachmentWriter) Write(p []byte) (int, error) {
+	h, r := w.handler, w.request
+	att, err := h.Queries.GetAttachmentByIDOnly(r.Context(), w.attachment.ID)
+	if err != nil || att.WorkspaceID != w.attachment.WorkspaceID {
+		return 0, chataccess.ErrInvisible
+	}
+	session := att.ChatSessionID
+	if att.ChatMessageID.Valid {
+		m, err := h.Queries.GetChatMessageByID(r.Context(), att.ChatMessageID)
+		if err != nil || m.DeletedAt.Valid || (session.Valid && session != m.ChatSessionID) {
+			return 0, chataccess.ErrInvisible
+		}
+		session = m.ChatSessionID
+	}
+	a, err := chataccess.Read(r.Context(), h.Queries, parseUUID(r.Header.Get("X-User-ID")), att.WorkspaceID, session)
+	if err != nil {
+		return 0, err
+	}
+	if r.URL.Query().Get("chat_sig") != "" && r.URL.Query().Get("acl_version") != strconv.FormatInt(a.AclVersion, 10) {
+		return 0, chataccess.ErrInvisible
+	}
+	if r.Header.Get("X-Actor-Source") == "task_token" {
+		task, err := h.Queries.GetAgentTask(r.Context(), parseUUID(r.Header.Get("X-Task-ID")))
+		if err != nil || task.ChatSessionID != session || att.TaskID != task.ID || uuidToString(task.AgentID) != r.Header.Get("X-Agent-ID") || isTerminalTaskStatus(task.Status) {
+			return 0, chataccess.ErrInvisible
+		}
+	}
+	return w.ResponseWriter.Write(p)
 }
 
 // serveProxyRange streams a (possibly partial) attachment body from a
@@ -1323,6 +1466,9 @@ func (h *Handler) GetAttachmentContent(w http.ResponseWriter, r *http.Request) {
 	// Always reply as text/plain so a hostile HTML payload can't be
 	// re-interpreted as a document by the browser. The original MIME is
 	// surfaced via X-Original-Content-Type for the client-side dispatcher.
+	if !h.recheckChatAttachment(w, r, att) {
+		return
+	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("X-Original-Content-Type", att.ContentType)
 	// No-store: workspace membership / attachment ACL can change between

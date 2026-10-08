@@ -1939,6 +1939,7 @@ func TestServeLocalUpload_RelaxesFrameAncestorsForPreview(t *testing.T) {
 
 	h := &Handler{
 		Storage: local,
+		Queries: testHandler.Queries,
 		cfg:     Config{AttachmentFrameAncestors: []string{"https://app.example.test"}},
 	}
 

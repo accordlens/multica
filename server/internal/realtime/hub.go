@@ -282,7 +282,8 @@ type Hub struct {
 	unregister chan *Client
 	mu         sync.RWMutex
 
-	authorizer ScopeAuthorizer
+	authorizer         ScopeAuthorizer
+	deliveryAuthorizer atomic.Pointer[deliveryGate]
 
 	// Subscription lifecycle hooks. Both can be nil.
 	onFirstSubscriber SubscriptionCallback
@@ -506,6 +507,9 @@ func (h *Hub) BroadcastToScopeDedup(scopeType, scopeID string, message []byte, e
 	var slow []*Client
 	var sent int64
 	for client := range clients {
+		if !h.canDeliver(client, message) {
+			continue
+		}
 		if !client.markSeen(eventID) {
 			continue
 		}
@@ -540,6 +544,9 @@ func (h *Hub) fanoutAllDedup(message []byte, excludeWorkspace, eventID string) {
 	var sent int64
 	for client := range h.clients {
 		if excludeWorkspace != "" && client.workspaceID == excludeWorkspace {
+			continue
+		}
+		if !h.canDeliver(client, message) {
 			continue
 		}
 		if !client.markSeen(eventID) {
@@ -592,6 +599,9 @@ func (h *Hub) fanoutUser(userID string, message []byte, excludeWorkspace, eventI
 	var sent int64
 	for client := range clients {
 		if excludeWorkspace != "" && client.workspaceID == excludeWorkspace {
+			continue
+		}
+		if !h.canDeliver(client, message) {
 			continue
 		}
 		if !client.markSeen(eventID) {
@@ -1057,6 +1067,10 @@ func (c *Client) writePump() {
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
+			if !c.hub.canDeliver(c, message) {
+				continue
+			}
+			c.hub.pruneRevokedScopes(c, message)
 			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				slog.Warn("websocket write error", "error", err, "user_id", c.userID, "workspace_id", c.workspaceID)
 				return

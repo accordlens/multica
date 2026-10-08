@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/attribution"
+	"github.com/multica-ai/multica/server/internal/chataccess"
 	"github.com/multica-ai/multica/server/internal/chattitle"
 	"github.com/multica-ai/multica/server/internal/entitlement"
 	"github.com/multica-ai/multica/server/internal/events"
@@ -2363,6 +2364,9 @@ func (s *TaskService) SendDirectChatMessage(
 		if currentSession.Status != "active" {
 			return ErrChatSessionArchived
 		}
+		if _, err := chataccess.Read(ctx, qtx, initiatorUserID, currentSession.WorkspaceID, currentSession.ID); err != nil {
+			return err
+		}
 		carrier, err := qtx.GetAgentForClaimUpdate(ctx, session.AgentID)
 		if err != nil {
 			return fmt.Errorf("reload chat agent: %w", err)
@@ -2798,6 +2802,8 @@ type TaskCancellationActor struct {
 // CancelTaskOptions carries what the caller knows about the client that asked
 // for the cancellation.
 type CancelTaskOptions struct {
+	// AuthorizeChat runs after the conversation lock, before any cancellation write.
+	AuthorizeChat func(context.Context, *db.Queries) error
 	// ClientSupportsDraftRestore is true when the caller can recover a prompt
 	// through the durable draft-restore path (#5219). Only such a client may be
 	// handed a deferred outcome; for anyone else the empty-transcript judgment
@@ -2909,6 +2915,11 @@ func (s *TaskService) CancelTaskWithResult(ctx context.Context, taskID pgtype.UU
 			if _, err := qtx.LockChatSessionForTask(ctx, taskID); err != nil {
 				return fmt.Errorf("lock queued chat session: %w", err)
 			}
+			if opts.AuthorizeChat != nil {
+				if err := opts.AuthorizeChat(ctx, qtx); err != nil {
+					return err
+				}
+			}
 			task, err = qtx.CancelQueuedAgentTask(ctx, db.CancelQueuedAgentTaskParams{
 				ID:              taskID,
 				ChatSessionID:   opts.ExpectedChatSession,
@@ -2933,6 +2944,11 @@ func (s *TaskService) CancelTaskWithResult(ctx context.Context, taskID pgtype.UU
 		err = s.runInTx(ctx, func(qtx *db.Queries) error {
 			if err := lockChatSessionForTaskWrite(ctx, qtx, taskID); err != nil {
 				return err
+			}
+			if opts.AuthorizeChat != nil {
+				if err := opts.AuthorizeChat(ctx, qtx); err != nil {
+					return err
+				}
 			}
 			var (
 				cancelled db.AgentTaskQueue
@@ -7238,11 +7254,13 @@ func (s *TaskService) broadcastTaskDispatch(ctx context.Context, task db.AgentTa
 		return
 	}
 	s.Bus.Publish(events.Event{
-		Type:        protocol.EventTaskDispatch,
-		WorkspaceID: workspaceID,
-		ActorType:   "system",
-		ActorID:     "",
-		Payload:     payload,
+		Type:          protocol.EventTaskDispatch,
+		TaskID:        util.UUIDToString(task.ID),
+		ChatSessionID: util.UUIDToString(task.ChatSessionID),
+		WorkspaceID:   workspaceID,
+		ActorType:     "system",
+		ActorID:       "",
+		Payload:       payload,
 	})
 }
 

@@ -205,13 +205,6 @@ func (h *Handler) DownloadAttachmentWithCapability(w http.ResponseWriter, r *htt
 	if query.Get("dl") == "1" {
 		intent = attachmentCapabilityDownloadIntent
 	}
-	if !verifyAttachmentCapability(attachmentID, query.Get("exp"), query.Get("sig"), intent, time.Now()) {
-		// One generic rejection for every reason, so a caller cannot
-		// distinguish "expired" from "forged" from "wrong attachment"
-		// and use the difference to probe the signer.
-		writeError(w, http.StatusForbidden, "invalid or expired download link")
-		return
-	}
 
 	attUUID, ok := parseUUIDOrBadRequest(w, attachmentID, "attachment id")
 	if !ok {
@@ -222,6 +215,21 @@ func (h *Handler) DownloadAttachmentWithCapability(w http.ResponseWriter, r *htt
 		writeError(w, http.StatusNotFound, "attachment not found")
 		return
 	}
+	if att.ChatSessionID.Valid || att.ChatMessageID.Valid {
+		if !h.redeemChatAttachment(w, r, att) {
+			return
+		}
+	} else {
+		if !verifyAttachmentCapability(attachmentID, query.Get("exp"), query.Get("sig"), intent, time.Now()) {
+			// One generic rejection for every reason, so a caller cannot
+			// distinguish "expired" from "forged" from "wrong attachment"
+			// and use the difference to probe the signer.
+			writeError(w, http.StatusForbidden, "invalid or expired download link")
+			return
+		}
+
+	}
+
 	if h.Storage == nil {
 		writeFeatureDisabled(w, "storage_not_configured", "storage not configured")
 		return
