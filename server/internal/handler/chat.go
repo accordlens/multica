@@ -759,6 +759,10 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := qtx.PruneTeamChatState(r.Context(), []pgtype.UUID{session.ID}); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete chat state")
+		return
+	}
 	if err := qtx.DeleteChatSession(r.Context(), db.DeleteChatSessionParams{
 		ID:          session.ID,
 		WorkspaceID: session.WorkspaceID,

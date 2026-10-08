@@ -1146,8 +1146,17 @@ func (h *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := qtx.LockChatSessionsByWorkspace(r.Context(), requester.WorkspaceID); err != nil {
+	lockedChats, err := qtx.LockChatSessionsByWorkspace(r.Context(), requester.WorkspaceID)
+	if err != nil {
 		failWorkspaceDelete(w, r, workspaceID, "lock chat sessions", err)
+		return
+	}
+	chatIDs := make([]pgtype.UUID, len(lockedChats))
+	for i, c := range lockedChats {
+		chatIDs[i] = c
+	}
+	if err := qtx.PruneTeamChatState(r.Context(), chatIDs); err != nil {
+		failWorkspaceDelete(w, r, workspaceID, "prune chat state", err)
 		return
 	}
 	if sourceContextAttachmentURLs, err = qtx.ListSourceContextAttachmentURLsByWorkspace(r.Context(), requester.WorkspaceID); err != nil {
