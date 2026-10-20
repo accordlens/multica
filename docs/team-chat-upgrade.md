@@ -43,13 +43,16 @@ Do not remove protected-object tombstones while any old object URL may survive
 failed storage GC. Deletion prunes participants/reads/threads/events/drafts in the
 same transaction; tombstones are intentionally retained as security records.
 Task privacy records also survive the historical FK clearing chat_session_id.
-Migration 581 conservatively quarantines pre-existing tasks with neither issue
-nor conversation ownership: their source may be a previously deleted private
+Migration 581 conservatively quarantines pre-existing tasks without conversation,
+issue, autopilot-run or quick-create ownership evidence: their source may be a previously deleted private
 chat. Their rows/input/result remain intact, but human-facing history stays
 hidden until an operator reviews/classifies the origin from backup evidence.
 Never grant a workspace admin automatic access to these unknown records. New
 unscoped public tasks are explicitly classified so retry does not quarantine
-them. Conversation scope cannot be reassigned on an existing private task.
+them. Known quick-create/autopilot runs remain visible. Retry also repairs their
+classification from an earlier preview, only when the retained conversation scope
+is NULL; a deleted private chat's non-NULL security scope always stays protected.
+Conversation scope cannot be reassigned on an existing private task.
 
 ## Storage origin gate
 
