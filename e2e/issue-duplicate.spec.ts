@@ -46,7 +46,7 @@ test.describe("Mark as duplicate", () => {
     await expect(page.getByRole("link", { name: original.identifier, exact: true })).toBeVisible();
 
     await originalLink.click();
-    await expect(page).toHaveURL(new RegExp(`/issues/${original.id}$`));
+    await expect(page).toHaveURL(new RegExp(`/issues/${original.identifier}$`));
     await expect(page.getByRole("button", { name: "Duplicates" })).toBeVisible();
     // The sidebar row names the duplicate with its title; the activity feed
     // links it by identifier alone.

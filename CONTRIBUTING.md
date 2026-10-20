@@ -637,6 +637,17 @@ make start-worktree
 
 ### Validate Before Pushing
 
+Fork pushes require a complete local CI result for the committed HEAD:
+
+```bash
+pnpm local:ci
+pnpm push
+```
+
+See [Local CI](docs/local-ci.md) for prerequisites, first-PR publication and the
+full gate list. The commands below remain useful during development but do not
+create the pre-push receipt.
+
 Main checkout:
 
 ```bash

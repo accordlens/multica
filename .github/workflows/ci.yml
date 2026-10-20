@@ -1,12 +1,7 @@
 name: CI
 
+# Fork verification runs locally; publish results with pnpm local:ci:publish.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  schedule:
-    - cron: "23 3 * * *"
   workflow_dispatch:
 
 concurrency:

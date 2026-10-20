@@ -9,6 +9,7 @@ import { createTestApi, loginAsDefault, reloadAppPage } from "./helpers";
 import type { TestApiClient, TestTableIssueSeed } from "./fixtures";
 
 type TableRequestBody = {
+  query?: { sort?: { field?: string; direction?: string } };
   group?: { kind?: string };
   group_key?: string | null;
   parent_id?: string | null;
@@ -26,6 +27,7 @@ type TableGroupsResponse = {
 
 type TableRowsResponse = {
   total: number;
+  branch_total: number;
   next_cursor: string | null;
   rows: Array<{
     issue: { id: string; title: string; status: string };
@@ -148,7 +150,9 @@ test.describe("Issue Table server grouping", () => {
       .filter({ hasText: "Backlog" })
       .first();
     await expect(backlogGroup).toContainText("501");
-    await expect(page.getByText(/Loaded \d+ of 1001/)).toBeVisible();
+    const renderedIssues = page.getByRole("row").filter({ hasText: `E2E Table Large ${run}` });
+    await expect(renderedIssues.first()).toBeVisible();
+    expect(await renderedIssues.count()).toBeLessThan(1001);
     await expect(
       page.getByText(/Grouping and hierarchy are paused/),
     ).toHaveCount(0);
@@ -224,9 +228,13 @@ test.describe("Issue Table server grouping", () => {
       );
     });
 
+    const groupsPromise = page.waitForResponse((response) =>
+      apiPath(response.request()) === "/api/issues/table/groups" && response.status() === 200,
+    );
     await groupByStatus(page);
-    const [todoRootResponse, todoChildrenResponse, doneRootResponse] =
+    const [groupsResponse, todoRootResponse, todoChildrenResponse, doneRootResponse] =
       await Promise.all([
+        groupsPromise,
         todoRootPromise,
         todoChildrenPromise,
         doneRootPromise,
@@ -236,7 +244,8 @@ test.describe("Issue Table server grouping", () => {
       (await todoChildrenResponse.json()) as TableRowsResponse;
     const doneRoot = (await doneRootResponse.json()) as TableRowsResponse;
 
-    expect(todoRoot.total).toBe(3);
+    expect(((await groupsResponse.json()) as TableGroupsResponse).total).toBe(3);
+    expect(todoRoot.branch_total).toBe(1);
     expect(todoRoot.rows).toEqual([
       expect.objectContaining({
         issue: expect.objectContaining({ id: parent.id, title: parentTitle }),
@@ -281,16 +290,22 @@ test.describe("Issue Table server grouping", () => {
     if (!moved) throw new Error("Cursor fixture was not created");
     await reloadAppPage(page);
 
+    await switchToTable(page);
+    await page.getByRole("button", { name: "Display", exact: true }).click();
+    await page.getByRole("combobox", { name: "Ordering", exact: true }).click();
     const firstHeadPromise = page.waitForResponse((response) => {
       if (apiPath(response.request()) !== "/api/issues/table/rows") return false;
       const body = tableBody(response.request());
       return (
         body.group?.kind === "none" &&
+        body.query?.sort?.field === "title" &&
+        body.query?.sort?.direction === "asc" &&
         (body.page?.cursor === null || body.page?.cursor === undefined) &&
         response.status() === 200
       );
     });
-    await switchToTable(page);
+    await page.getByRole("option", { name: "Title", exact: true }).click();
+    await page.keyboard.press("Escape");
     const firstHead = (await (await firstHeadPromise).json()) as TableRowsResponse;
     const staleCursor = firstHead.next_cursor;
     expect(staleCursor).toBeTruthy();
@@ -304,8 +319,11 @@ test.describe("Issue Table server grouping", () => {
     await tableScroller.evaluate((element) => {
       element.scrollTop = element.scrollHeight;
     });
-    await firstTailPromise;
-    await expect(page.getByText("Loaded 60 of 60", { exact: true })).toBeVisible();
+    const firstTail = (await (await firstTailPromise).json()) as TableRowsResponse;
+    expect(firstTail.next_cursor).toBeNull();
+    expect(new Set([...firstHead.rows, ...firstTail.rows].map((row) => row.issue.id)).size).toBe(60);
+    await tableScroller.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await expect(page.getByRole("row").filter({ hasText: firstTail.rows.at(-1)!.issue.title })).toBeVisible();
 
     const postUpdateResponses: Array<{
       body: TableRequestBody;
@@ -324,22 +342,20 @@ test.describe("Issue Table server grouping", () => {
       });
     };
     page.on("response", collectResponse);
-    await api.updateIssue(moved.id, { position: 0 });
+    const movedTitle = `AAA moved ${run}`;
+    const updatedHead = () => postUpdateResponses.find(({ body, payload }) =>
+      (body.page?.cursor === null || body.page?.cursor === undefined) &&
+      payload.rows.some((row) => row.issue.id === moved.id && row.issue.title === movedTitle),
+    )?.payload;
+    await api.updateIssue(moved.id, { title: movedTitle });
 
     await expect
       .poll(
-        () =>
-          postUpdateResponses.find(
-            ({ body }) =>
-              body.page?.cursor === null || body.page?.cursor === undefined,
-          )?.payload.next_cursor,
+        () => updatedHead()?.next_cursor,
         { timeout: 10000 },
       )
       .not.toBeUndefined();
-    const freshHead = postUpdateResponses.find(
-      ({ body }) =>
-        body.page?.cursor === null || body.page?.cursor === undefined,
-    )?.payload;
+    const freshHead = updatedHead();
     const freshCursor = freshHead?.next_cursor;
     expect(freshCursor).toBeTruthy();
     expect(freshCursor).not.toBe(staleCursor);
@@ -365,7 +381,7 @@ test.describe("Issue Table server grouping", () => {
     ].map((row) => row.issue.id);
     expect(new Set(refreshedIds).size).toBe(60);
     expect(refreshedIds).toContain(moved.id);
-    await expect(page.getByText("Loaded 60 of 60", { exact: true })).toBeVisible();
+    await expect(page.getByRole("row").filter({ hasText: freshTail!.rows.at(-1)!.issue.title })).toBeVisible();
     page.off("response", collectResponse);
   });
 

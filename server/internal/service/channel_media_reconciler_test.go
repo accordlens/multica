@@ -192,6 +192,58 @@ func (f reconcilerFixture) bindAttachment(t *testing.T, url string) {
 	}
 }
 
+func TestChannelMediaReconciler_ClaimsOneRowWithSparseStatistics(t *testing.T) {
+	pool := newCancelFinalizePool(t)
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	// Keep statistics and planner settings local to this connection. A table
+	// analyzed while nearly empty can choose a nested-loop plan that rescans
+	// the limited candidate subquery for each target row.
+	_, err = tx.Exec(ctx, `
+		CREATE TEMP TABLE channel_media_pending_object
+		(LIKE public.channel_media_pending_object INCLUDING ALL) ON COMMIT DROP;
+		SET LOCAL search_path = pg_temp, public;
+		SET LOCAL enable_hashjoin = off;
+		SET LOCAL enable_mergejoin = off;
+		SET LOCAL enable_material = off;
+		SET LOCAL enable_indexscan = off;
+		SET LOCAL enable_bitmapscan = off;
+		INSERT INTO channel_media_pending_object
+		(storage_key, workspace_id, chat_message_id, storage_url, state, created_at, next_attempt_at)
+		VALUES ('not-due', '11111111-1111-4111-8111-111111111111',
+		'22222222-2222-4222-8222-222222222222', 'https://cdn.test/not-due', 'pending', now(), now() + interval '1 day');
+		ANALYZE channel_media_pending_object;
+		INSERT INTO channel_media_pending_object
+		(storage_key, workspace_id, chat_message_id, storage_url, state, created_at, next_attempt_at)
+		SELECT key, '11111111-1111-4111-8111-111111111111',
+		'22222222-2222-4222-8222-222222222222', 'https://cdn.test/' || key,
+		'pending', now() - interval '1 hour', now() - age
+		FROM (VALUES ('first', interval '1 hour'), ('second', interval '30 minutes')) AS seed(key, age);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := db.New(tx).ClaimNextChannelMediaPendingObjectForReconcile(ctx, db.ClaimNextChannelMediaPendingObjectForReconcileParams{
+		LeaseToken:  util.MustParseUUID("55555555-5555-4555-8555-555555555555"),
+		Lease:       pgInterval(channelMediaReconcileLease),
+		SettleDelay: pgInterval(ChannelMediaReconcileSettleDelay),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var claimed int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM channel_media_pending_object WHERE attempt <> 0`).Scan(&claimed); err != nil {
+		t.Fatal(err)
+	}
+	if row.StorageKey != "first" || claimed != 1 {
+		t.Fatalf("claim returned %q and changed %d rows; want oldest row only", row.StorageKey, claimed)
+	}
+}
+
 // The reconciler's three terminal states: a referenced object is kept (row
 // cleared), an unreferenced settled object is deleted (row cleared), and a
 // row younger than the settle delay is untouched.

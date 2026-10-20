@@ -129,21 +129,26 @@ func memberRemovalCandidate(raw []byte) bool {
 
 func (h *Hub) stopClient(client *Client, notice []byte, deadline time.Time) {
 	client.stopped.Store(true)
+	// Closing send wakes the idle write pump, which closes the transport on
+	// exit. Send the removal notice first so that teardown cannot discard it.
+	// Busy writers still fail closed immediately; the notice is best effort.
+	if client.conn != nil {
+		if len(notice) != 0 && time.Now().Before(deadline) && client.writeMu.TryLock() {
+			client.conn.SetWriteDeadline(deadline)
+			_ = client.conn.WriteMessage(websocket.TextMessage, notice)
+			client.writeMu.Unlock()
+		}
+	}
+	// Drop every subscription before the peer can observe transport closure.
 	h.removeClient(client)
 	client.closeSend() // a writer may stop before registration completes
 	for range client.send {
 		// Discard queued content, including frames whose writer is doing a
 		// membership lookup concurrently. The writer also checks stopped.
 	}
-	if client.conn == nil {
-		return
+	if client.conn != nil {
+		client.conn.Close()
 	}
-	if len(notice) != 0 && time.Now().Before(deadline) && client.writeMu.TryLock() {
-		client.conn.SetWriteDeadline(deadline)
-		_ = client.conn.WriteMessage(websocket.TextMessage, notice)
-		client.writeMu.Unlock()
-	}
-	client.conn.Close()
 }
 
 // Capture the bounded batch BEFORE querying membership. A successful lookup

@@ -162,6 +162,23 @@ func TestMembershipRemovalAcrossHubsAndScopes(t *testing.T) {
 	wantMembershipFrame(t, otherWS, "issue:updated")
 }
 
+func TestMembershipRemovalDeliversNoticeBeforeClosingIdleSocket(t *testing.T) {
+	hub := NewHub()
+	membership := &changingMembership{}
+	server := membershipServer(t, hub, membership)
+	for i := 0; i < 100; i++ {
+		membership.revoked.Store(false)
+		conn := connectWS(t, server)
+		t.Cleanup(func() { conn.Close() })
+		waitFor(t, "idle socket registered", func() bool { return totalClients(hub) == 1 })
+		membership.revoked.Store(true)
+		hub.DisconnectMember(testWorkspaceID, testUserID, "member-id")
+		wantMembershipFrame(t, conn, "member:removed")
+		wantMembershipClosed(t, conn)
+		conn.Close()
+	}
+}
+
 type failedMembershipPublisher struct{}
 
 func (failedMembershipPublisher) PublishWithID(string, string, string, []byte, string) error {

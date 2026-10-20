@@ -2,8 +2,6 @@ name: OpenClaw config compatibility smoke
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "17 6 * * 1"
 
 permissions:
   contents: read
