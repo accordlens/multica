@@ -93,7 +93,8 @@ func TestTypingInputLifecycleDB(t *testing.T) {
 				f.Exec(t, "UPDATE agent_task_queue SET agent_id=$2 WHERE id=$1", f.taskID, otherAgent)
 			case "foreign task session":
 				other := f.ChatSession(t, uuidString(f.inst.AgentID))
-				f.Exec(t, "UPDATE agent_task_queue SET chat_session_id=$2 WHERE id=$1", f.taskID, other)
+				foreignTask := f.Task(t, uuidString(f.inst.AgentID), dbfx.Cols{"chat_session_id": other, "status": "running", "runtime_id": f.runtimeID})
+				f.Exec(t, "UPDATE chat_message SET task_id=$2 WHERE id=$1", f.messageID, foreignTask)
 			case "web input":
 				f.Exec(t, "UPDATE chat_message SET channel_ingested=false WHERE id=$1", f.messageID)
 			case "rollback":
