@@ -50,3 +50,7 @@ coverage
 /scripts/
 /release-artifacts/
 /selfhost-backups/
+
+# Apply after workspace exceptions: images must rebuild host-generated outputs.
+**/node_modules
+**/.next

@@ -6,7 +6,6 @@ const ROUTE_CHANGE_TIMEOUT = 30000;
 test.describe("Navigation", () => {
   test.beforeEach(async ({ page }) => {
     await loginAsDefault(page);
-    await page.waitForLoadState("networkidle");
   });
 
   test("sidebar navigation works", async ({ page }) => {
@@ -32,8 +31,8 @@ test.describe("Navigation", () => {
     await expect(page).toHaveURL(/\/settings/, { timeout: ROUTE_CHANGE_TIMEOUT });
     await waitForPageText(page, "Settings");
 
-    await expect(page.getByRole("tab", { name: "General" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Members" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "General", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Members", exact: true })).toBeVisible();
   });
 
   test("agents page shows agent list", async ({ page }) => {
