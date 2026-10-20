@@ -14,7 +14,7 @@ import { useT } from "../../i18n";
 
 /** Retry only makes sense for terminal-but-not-success runs. */
 export function canRetryRun(task: AgentTask): boolean {
-  return task.status === "failed" || task.status === "cancelled";
+  return !task.workflow_execution && (task.status === "failed" || task.status === "cancelled");
 }
 
 // Re-runs one specific past run. Shared by the execution log's rows and the

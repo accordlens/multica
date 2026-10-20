@@ -20,8 +20,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/attribution"
+	"github.com/multica-ai/multica/server/internal/issueworkflow"
 	"github.com/multica-ai/multica/server/internal/logger"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/runtimeapps"
@@ -355,7 +357,8 @@ type TaskIssueStatusData struct {
 // Brief is the server-rendered text (issueworkflow.Brief); the daemon puts it
 // in the per-turn prompt, never in the cached runtime brief.
 type TaskProjectWorkflowData struct {
-	Brief string `json:"brief"`
+	Gate  *issueworkflow.Execution `json:"gate,omitempty"`
+	Brief string                   `json:"brief"`
 }
 
 // TaskCancellationActor is the point-in-time actor snapshot attached to a
@@ -368,9 +371,12 @@ type TaskCancellationActor struct {
 }
 
 type AgentTaskResponse struct {
-	StartClaimSupported      bool                   `json:"start_claim_supported,omitempty"`
-	CancelledByCommentChange bool                   `json:"cancelled_by_comment_change,omitempty"`
-	CancelledBy              *TaskCancellationActor `json:"cancelled_by,omitempty"`
+	WorkflowStep             string                   `json:"workflow_step,omitempty"`
+	WorkflowEvidence         *issueworkflow.Evidence  `json:"workflow_evidence,omitempty"`
+	WorkflowExecution        *issueworkflow.Execution `json:"workflow_execution,omitempty"`
+	StartClaimSupported      bool                     `json:"start_claim_supported,omitempty"`
+	CancelledByCommentChange bool                     `json:"cancelled_by_comment_change,omitempty"`
+	CancelledBy              *TaskCancellationActor   `json:"cancelled_by,omitempty"`
 
 	ID                   string                 `json:"id"`
 	AgentID              string                 `json:"agent_id"`
@@ -809,6 +815,10 @@ func visibleTaskHistory(tasks []db.AgentTaskQueue) []db.AgentTaskQueue {
 // derivation; pass "" only on daemon-facing paths that genuinely don't have
 // it, in which case RelativeWorkDir falls back to the existing WorkDir.
 func taskToResponse(t db.AgentTaskQueue, workspaceID string) AgentTaskResponse {
+	var workflow struct {
+		Evidence *issueworkflow.Evidence `json:"workflow_evidence"`
+	}
+	_ = json.Unmarshal(t.Result, &workflow)
 	var cancellation struct {
 		TaskID string `json:"comment_change_cancelled_task_id"`
 	}
@@ -843,6 +853,9 @@ func taskToResponse(t db.AgentTaskQueue, workspaceID string) AgentTaskResponse {
 		handoffNote = t.HandoffNote.String
 	}
 	return AgentTaskResponse{
+		WorkflowStep:      t.WorkflowStep.String,
+		WorkflowEvidence:  workflow.Evidence,
+		WorkflowExecution: issueworkflow.ParseExecution(t.Context),
 		// Task-scoped provenance must not transfer through copied retry context.
 		CancelledByCommentChange: t.Status == "cancelled" && cancellation.TaskID != "" && cancellation.TaskID == uuidToString(t.ID),
 		CancelledBy:              taskCancellationActorToResponse(t),

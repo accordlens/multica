@@ -23,13 +23,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/singleflight"
 
 	"github.com/multica-ai/multica/server/internal/cli"
 	"github.com/multica-ai/multica/server/internal/daemon/execenv"
 	"github.com/multica-ai/multica/server/internal/daemon/repocache"
+	"github.com/multica-ai/multica/server/internal/issueworkflow"
 	"github.com/multica-ai/multica/server/internal/selfexec"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/pkg/agent"
@@ -255,15 +255,16 @@ const (
 // reportTerminalTask gives the durable outbox one insertion point without
 // revisiting every task exit when it is added.
 type terminalTaskReport struct {
-	kind           terminalTaskReportKind
-	taskID         string
-	output         string
-	branchName     string
-	errorMessage   string
-	sessionID      string
-	workDir        string
-	durableWorkDir string
-	failureReason  string
+	workflowEvidence *issueworkflow.Evidence
+	kind             terminalTaskReportKind
+	taskID           string
+	output           string
+	branchName       string
+	errorMessage     string
+	sessionID        string
+	workDir          string
+	durableWorkDir   string
+	failureReason    string
 	// sessionRolloutMissing is true when the daemon withheld this task's Codex
 	// session because its rollout was not in the store (MUL-5305). The server
 	// clears the resume pointer and flags the continuity gap for the next claim.
@@ -6214,6 +6215,7 @@ func (d *Daemon) reportTaskResult(ctx context.Context, taskID string, result Tas
 		err := d.reportTerminalTask(ctx, terminalTaskReport{
 			kind:                  terminalTaskReportComplete,
 			taskID:                taskID,
+			workflowEvidence:      result.WorkflowEvidence,
 			output:                result.Comment,
 			branchName:            result.BranchName,
 			sessionID:             result.SessionID,
@@ -6364,7 +6366,7 @@ func (d *Daemon) sendTerminalTaskReport(ctx context.Context, report terminalTask
 	}
 	switch report.kind {
 	case terminalTaskReportComplete:
-		return d.client.completeTaskWithRetrySchedule(ctx, report.taskID, report.output, report.branchName, report.sessionID, report.workDir, report.sessionRolloutMissing, report.retiredSessionID, report.durableWorkDir, schedule)
+		return d.client.completeTaskWithRetrySchedule(ctx, report.taskID, report.output, report.branchName, report.sessionID, report.workDir, report.sessionRolloutMissing, report.retiredSessionID, report.durableWorkDir, schedule, report.workflowEvidence)
 	case terminalTaskReportFail:
 		return d.client.failTaskWithRetrySchedule(ctx, report.taskID, report.errorMessage, report.sessionID, report.workDir, report.branchName, report.failureReason, report.sessionRolloutMissing, report.retiredSessionID, report.durableWorkDir, schedule)
 	default:
@@ -7644,6 +7646,17 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		return TaskResult{}, fmt.Errorf("refusing to spawn agent: task has no workspace_id (task_id=%s)", task.ID)
 	}
 
+	if task.WorkflowExecution != nil && task.WorkflowExecution.Kind == "script" {
+		return d.runScriptTask(ctx, task, taskLog)
+	}
+	if gate := task.WorkflowExecution; gate != nil {
+		if gate.Kind != "agent" && gate.Kind != "repair" && gate.Kind != "review" {
+			return TaskResult{}, fmt.Errorf("unknown workflow execution kind")
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, gate.Deadline)
+		defer cancel()
+	}
 	prepareTimeout := d.effectiveTaskPrepareTimeout()
 	prepareCtx, cancelPrepare := context.WithTimeoutCause(ctx, prepareTimeout, errTaskPrepareTimeout)
 	prepareComplete := false
@@ -8411,6 +8424,23 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	stopPrepareLease()
 	prepareComplete = true
 	cancelPrepare()
+	defer func() {
+		gate := task.WorkflowExecution
+		if gate == nil && task.ProjectWorkflow != nil {
+			gate = task.ProjectWorkflow.Gate
+		}
+		if gate != nil && taskResult.Status == "completed" {
+			attestCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer cancel()
+			source, _, sourceErr := workflowSource(attestCtx, env.WorkDir, gate.Script)
+			evidence := &issueworkflow.Evidence{RunID: task.ID, Source: source, WorkflowVersion: gate.WorkflowVersion, Outcome: "agent_completed"}
+			if sourceErr != nil {
+				evidence.Outcome = "infrastructure_failed"
+				evidence.Reason = sourceErr.Error()
+			}
+			taskResult.WorkflowEvidence = evidence
+		}
+	}()
 	_ = d.client.ReportProgress(ctx, task.ID, fmt.Sprintf("Launching %s", provider), 1, 2)
 
 	// usesCustomProfileCommand is the same provenance the backend receives as

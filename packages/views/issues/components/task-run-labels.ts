@@ -27,6 +27,11 @@ import { stripMentionMarkdown } from "../utils/strip-mention-markdown";
  */
 export function useTriggerText(task: AgentTask): string {
   const { t } = useT("issues");
+  if (task.workflow_execution) {
+    return task.workflow_execution.kind === "script"
+      ? `${t(($) => $.workflow_run.script)} · ${task.workflow_execution.script.id}`
+      : `${t(($) => $.workflow_run.step)} · ${task.workflow_step ?? task.workflow_execution.kind}`;
+  }
   const isRetry = !!task.parent_task_id;
   const retryPrefix = isRetry
     ? task.attempt && task.attempt > 1

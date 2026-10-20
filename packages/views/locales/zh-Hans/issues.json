@@ -1689,5 +1689,17 @@
   },
   "hover_card": {
     "created_updated": "创建于 {{created}} · 更新于 {{updated}}"
+  },
+  "workflow_run": {
+    "evidence": "工作流证据",
+    "step": "步骤",
+    "source": "源代码 SHA",
+    "definition": "工作流版本",
+    "script": "脚本",
+    "repairs": "修复次数",
+    "report": "报告",
+    "log": "日志",
+    "resources": "脚本运行时间与模型用量分别记录。",
+    "script_time": "脚本运行时间"
   }
 }

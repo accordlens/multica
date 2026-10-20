@@ -1755,5 +1755,17 @@
   },
   "hover_card": {
     "created_updated": "created {{created}} · updated {{updated}}"
+  },
+  "workflow_run": {
+    "evidence": "Workflow evidence",
+    "step": "Step",
+    "source": "Source SHA",
+    "definition": "Workflow version",
+    "script": "Script",
+    "repairs": "Repair attempts",
+    "report": "Report",
+    "log": "Log",
+    "resources": "Script duration is recorded separately from model usage.",
+    "script_time": "Script time"
   }
 }

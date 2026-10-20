@@ -1689,5 +1689,17 @@
   },
   "hover_card": {
     "created_updated": "{{created}}に作成 · {{updated}}に更新"
+  },
+  "workflow_run": {
+    "evidence": "ワークフローの証跡",
+    "step": "ステップ",
+    "source": "ソース SHA",
+    "definition": "ワークフローのバージョン",
+    "script": "スクリプト",
+    "repairs": "修正回数",
+    "report": "レポート",
+    "log": "ログ",
+    "resources": "スクリプトの実行時間はモデルの使用量と別に記録されます。",
+    "script_time": "スクリプト実行時間"
   }
 }

@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/multica-ai/multica/server/internal/issuestatus"
 	"github.com/multica-ai/multica/server/internal/issueworkflow"
 	"github.com/multica-ai/multica/server/internal/service"
@@ -45,7 +46,17 @@ type workflowHandoff struct {
 // run is the calling agent's run on this issue (nil for members): it may only
 // move the issue from the step it works on. It returns the handoff that write
 // triggers, or nil.
-func (h *Handler) applyIssueWorkflow(ctx context.Context, prev db.Issue, params *db.UpdateIssueParams, statusExplicit, assigneeTouched, enterOnMove bool, run *db.AgentTaskQueue) (*workflowHandoff, error) {
+func (h *Handler) applyIssueWorkflow(r *http.Request, prev db.Issue, params *db.UpdateIssueParams, statusExplicit, assigneeTouched, enterOnMove bool, run *db.AgentTaskQueue) (*workflowHandoff, error) {
+	ctx := r.Context()
+	if prev.ProjectID.Valid && params.ProjectID != prev.ProjectID {
+		oldDef, _, err := issueworkflow.ForProject(ctx, h.Queries, prev.WorkspaceID, prev.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		if oldDef != nil && oldDef.HasScripts() {
+			return nil, &scriptGateError{reason: "a script workflow issue keeps its project binding; a human administrator must change the project workflow explicitly"}
+		}
+	}
 	def, project, err := issueworkflow.ForProject(ctx, h.Queries, prev.WorkspaceID, params.ProjectID)
 	if err != nil || def == nil {
 		return nil, err
@@ -60,6 +71,11 @@ func (h *Handler) applyIssueWorkflow(ctx context.Context, prev db.Issue, params 
 	if params.Status.Valid {
 		if err := issueworkflow.CheckStatus(def, params.Status.String); err != nil {
 			return nil, err
+		}
+		if params.Status.String != prev.Status {
+			if err := h.checkScriptWorkflowMove(ctx, prev, *def, params.Status.String, run, r); err != nil {
+				return nil, err
+			}
 		}
 	}
 	// Someone else moved the issue while the run worked: the run's decision was
@@ -120,6 +136,11 @@ func workflowHandoffPayload(issue db.Issue, hand *workflowHandoff, note string, 
 // writeIssueWorkflowError answers a workflow rejection. It reports false when
 // err is not one, so the caller can fall through to its generic 500.
 func writeIssueWorkflowError(w http.ResponseWriter, err error) bool {
+	var gated *scriptGateError
+	if errors.As(err, &gated) {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": gated.Error(), "code": "workflow_script_gate"})
+		return true
+	}
 	var notIn *issueworkflow.NotInWorkflowError
 	if errors.As(err, &notIn) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{
@@ -187,6 +208,15 @@ func (h *Handler) handedToAgent(ctx context.Context, prev db.Issue, params db.Up
 // advanceRunStep moves a run's workflow step along with a status change the
 // run made itself, so its next change is judged from where it put the issue.
 func (h *Handler) advanceRunStep(ctx context.Context, run *db.AgentTaskQueue, prev, issue db.Issue) {
+	if issue.Status == "cancelled" && prev.Status != issue.Status && h.TaskService != nil {
+		if tasks, err := h.Queries.ListActiveTasksByIssue(ctx, issue.ID); err == nil {
+			for _, active := range tasks {
+				if issueworkflow.ParseExecution(active.Context) != nil {
+					_, _ = h.TaskService.CancelTaskByUser(ctx, active.ID, service.TaskCancellationActor{Type: "system", Name: "Workflow cancelled"})
+				}
+			}
+		}
+	}
 	if run == nil || !run.WorkflowStep.Valid || prev.Status == issue.Status {
 		return
 	}
@@ -348,7 +378,72 @@ func (h *Handler) claimProjectWorkflow(ctx context.Context, issue db.Issue, task
 			in.AssigneeName = h.actorDisplayName(ctx, issue.WorkspaceID, issue.AssigneeType.String, issue.AssigneeID)
 		}
 	}
-	return &TaskProjectWorkflowData{Brief: issueworkflow.Brief(in)}
+	out := &TaskProjectWorkflowData{Brief: issueworkflow.Brief(in)}
+	if taskRunsForAssignee(issue, task) {
+		step, ok := def.Step(def.NextStatus(issue.Status))
+		if current, found := def.Step(issue.Status); found && current.Script != nil {
+			step, ok = current, true
+		}
+		if ok && step.Script != nil {
+			out.Gate = &issueworkflow.Execution{Kind: "agent", WorkflowID: uuidToString(def.ID), WorkflowVersion: def.Version(), StepKey: step.StatusKey, Script: *step.Script}
+			out.Brief += "\nThe script gate runs automatically after this agent run completes. Commit and report the change, then finish this run at its current agent step. The engine owns verification, bounded repair and review handoff; do not move the issue to review or done yourself.\n"
+		}
+	}
+	if task != nil {
+		if execution := issueworkflow.ParseExecution(task.Context); execution != nil && execution.Kind == "review" {
+			out.Brief += "\nKeep this issue in its review status for human acceptance. Review the exact SHA and report in the handoff, and end your result with the requested SHA-pinned verdict.\n"
+		}
+	}
+	return out
+}
+
+type scriptGateError struct{ reason string }
+
+func (e *scriptGateError) Error() string { return e.reason }
+
+// Script and review admission belongs to the engine, even when the author
+// changes the assignee in the same request. No declaration bypasses evidence.
+func (h *Handler) checkScriptWorkflowMove(ctx context.Context, issue db.Issue, def issueworkflow.Definition, target string, run *db.AgentTaskQueue, r *http.Request) error {
+	if !def.HasScripts() || target == "cancelled" || target == "blocked" {
+		return nil
+	}
+	for _, step := range def.Steps {
+		if step.Script == nil {
+			continue
+		}
+		if issue.Status == step.StatusKey || target == step.NextStatusKey {
+			return &scriptGateError{reason: "the workflow engine admits script and review transitions after validating current-revision evidence"}
+		}
+	}
+	if target != "done" {
+		return nil
+	}
+	fromReview := false
+	for _, step := range def.Steps {
+		if step.Script != nil && issue.Status == step.NextStatusKey {
+			fromReview = true
+		}
+	}
+	if !fromReview {
+		return &scriptGateError{reason: "human acceptance follows the current independent review step"}
+	}
+	actor, _ := h.resolveActor(r, requestUserID(r), uuidToString(issue.WorkspaceID))
+	if run != nil || actor != "member" {
+		return &scriptGateError{reason: "human acceptance is required after independent review"}
+	}
+	approved, err := h.Queries.LatestWorkflowApproval(ctx, db.LatestWorkflowApprovalParams{IssueID: issue.ID, WorkspaceID: issue.WorkspaceID})
+	if err != nil {
+		return &scriptGateError{reason: "current independent review is required"}
+	}
+	execution := issueworkflow.ParseExecution(approved.Context)
+	if execution == nil || execution.Kind != "review" || approved.WorkflowStep.String != issue.Status || approved.Status != "completed" || execution.ReviewVerdict != "APPROVE" || execution.BlockReason != "" || execution.WorkflowVersion != def.Version() || execution.Evidence == nil {
+		return &scriptGateError{reason: "current independent APPROVE and script PASS are required"}
+	}
+	sha, err := h.Queries.GetIssueReviewHeadSha(ctx, issue.ID)
+	if err != nil || sha == "" || sha != execution.Source.SHA {
+		return &scriptGateError{reason: "link the reviewed PR at the verified source SHA before human acceptance"}
+	}
+	return nil
 }
 
 // taskRunsForAssignee reports whether a run works on the issue as its

@@ -168,6 +168,14 @@ describe("buildRunTimeline", () => {
     expect(timeline.pricedCount).toBe(0);
   });
 
+  it("records script duration separately from agent time", () => {
+    const task = makeTask({ workflow_execution: { kind: "script", root_task_id: "root", workflow_id: "workflow", workflow_version: "version", step_key: "verify", source: { sha: "sha" }, script: { id: "unit", version: "1", checkout: "repo", directory: ".", command: ["node"], required_env: [], timeout_seconds: 5, budget_seconds: 60, max_repairs: 1, required_checks: ["unit"], files: {} }, repairs: 0, deadline: "deadline" } });
+    const timeline = buildRunTimeline([task], NOW);
+    expect(timeline.agentMs).toBe(0);
+    expect(timeline.scriptMs).toBe(timeline.runs[0]!.durationMs);
+    expect(groupRunsByDay(timeline.runs)[0]?.agentMs).toBe(0);
+  });
+
   it("splits a run's cost by what was billed", () => {
     const timeline = buildRunTimeline([makeTask({ usage: usage(1_000_000) })], NOW);
     expect(timeline.runs[0]!.breakdown).toEqual({ input: 0, output: 25, cacheRead: 0, cacheWrite: 0 });

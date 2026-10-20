@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/attribution"
 	"github.com/multica-ai/multica/server/internal/chattitle"
@@ -24,6 +25,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/featureflags"
 	"github.com/multica-ai/multica/server/internal/inbox"
 	"github.com/multica-ai/multica/server/internal/issuestatus"
+	"github.com/multica-ai/multica/server/internal/issueworkflow"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/runtimeapps"
@@ -4412,11 +4414,18 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 // terminal task is still an idempotent success but must not emit them again.
 func (s *TaskService) CompleteTaskWithTransition(ctx context.Context, taskID pgtype.UUID, result []byte, sessionID, workDir, branchName string, sessionRolloutMissing bool, retiredSessionID, durableWorkDir string) (*db.AgentTaskQueue, bool, error) {
 	var task db.AgentTaskQueue
+	var workflowIssue *db.Issue
+	var workflowSuccessor db.AgentTaskQueue
 	// chatAssistantMsg is the single assistant outcome row written for a chat
 	// task inside the completion transaction below. It is broadcast (chat:done)
 	// only after the transaction commits.
 	var chatAssistantMsg *db.ChatMessage
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		var lockErr error
+		workflowIssue, lockErr = lockScriptCompletion(ctx, qtx, taskID)
+		if lockErr != nil {
+			return lockErr
+		}
 		if err := lockChatSessionForTaskWrite(ctx, qtx, taskID); err != nil {
 			return err
 		}
@@ -4439,6 +4448,11 @@ func (s *TaskService) CompleteTaskWithTransition(ctx context.Context, taskID pgt
 		// finished obligation looking pending forever.
 		if err := SettleTerminalTaskState(ctx, qtx, t); err != nil {
 			return err
+		}
+		if workflowIssue != nil {
+			if err := s.advanceScriptWorkflow(ctx, qtx, &task, &workflowSuccessor); err != nil {
+				return fmt.Errorf("advance script workflow: %w", err)
+			}
 		}
 
 		if t.ChatSessionID.Valid {
@@ -4496,7 +4510,7 @@ func (s *TaskService) CompleteTaskWithTransition(ctx context.Context, taskID pgt
 		// … WHERE status = 'running' returns no rows in that case.
 		// Treat it as an idempotent success — same pattern as CancelTask.
 		if existing, lookupErr := s.Queries.GetAgentTask(ctx, taskID); lookupErr == nil {
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, pgx.ErrNoRows) && (existing.Status == "completed" || existing.Status == "cancelled" || existing.Status == "failed") {
 				slog.Info("complete task: already finalized",
 					"task_id", util.UUIDToString(taskID),
 					"current_status", existing.Status,
@@ -4522,6 +4536,14 @@ func (s *TaskService) CompleteTaskWithTransition(ctx context.Context, taskID pgt
 	}
 
 	slog.Info("task completed", "task_id", util.UUIDToString(task.ID), "issue_id", util.UUIDToString(task.IssueID))
+	if workflowIssue != nil && s.Bus != nil {
+		if current, err := s.Queries.GetIssueInWorkspace(ctx, db.GetIssueInWorkspaceParams{ID: workflowIssue.ID, WorkspaceID: workflowIssue.WorkspaceID}); err == nil {
+			s.broadcastIssueUpdated(ctx, current, workflowIssue.Status)
+		}
+	}
+	if workflowSuccessor.ID.Valid {
+		s.NotifyTaskEnqueued(ctx, workflowSuccessor)
+	}
 	s.captureTaskCompleted(ctx, task)
 
 	// Invariant: every completed issue task must have at least one agent
@@ -5392,7 +5414,7 @@ func ResumeUnsafeFailure(failureReason, errorText string) bool {
 // a human may have edited in the meantime, so replaying the failed attempt is
 // never what the workspace wants.
 func retryEligible(failureReason string, t db.AgentTaskQueue) bool {
-	return retryableReasons[failureReason] &&
+	return issueworkflow.ParseExecution(t.Context) == nil && retryableReasons[failureReason] &&
 		t.Attempt < retryAttemptCeiling(failureReason, t.MaxAttempts) &&
 		!t.AutopilotRunID.Valid &&
 		!IsTriageTask(t) &&
@@ -5446,6 +5468,9 @@ func hasRunnableSuccessor(ctx context.Context, q *db.Queries, task db.AgentTaskQ
 // Autopilot tasks are NOT auto-retried here; the autopilot scheduler owns
 // its own re-run cadence and we don't want to double-fire it.
 func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.AgentTaskQueue) (*db.AgentTaskQueue, error) {
+	if issueworkflow.ParseExecution(parent.Context) != nil {
+		return nil, nil
+	}
 	if parent.Status != "failed" {
 		return nil, nil
 	}
@@ -5671,6 +5696,11 @@ func (s *TaskService) RerunIssue(ctx context.Context, issueID pgtype.UUID, sourc
 	issue, err := s.Queries.GetIssue(ctx, issueID)
 	if err != nil {
 		return nil, fmt.Errorf("load issue: %w", err)
+	}
+	if def, _, loadErr := issueworkflow.ForProject(ctx, s.Queries, issue.WorkspaceID, issue.ProjectID); loadErr != nil {
+		return nil, loadErr
+	} else if def != nil && def.HasScripts() {
+		return nil, fmt.Errorf("restart a script workflow through its author step; individual operations cannot be replayed")
 	}
 	// In Triage a rerun follows its source, and the decision is made here —
 	// before anything is cancelled. The queue door would refuse a derived rerun
@@ -5979,7 +6009,12 @@ func (s *TaskService) FailStaleTasks(ctx context.Context, arg db.FailStaleTasksP
 // ExpireStaleQueuedTasks fails queued work whose runtime never came back.
 func (s *TaskService) ExpireStaleQueuedTasks(ctx context.Context, arg db.ExpireStaleQueuedTasksParams) ([]db.AgentTaskQueue, error) {
 	return s.terminateTasksInTx(ctx, func(qtx *db.Queries) ([]db.AgentTaskQueue, error) {
-		return qtx.ExpireStaleQueuedTasks(ctx, arg)
+		workflow, err := qtx.ExpireWorkflowTasks(ctx)
+		if err != nil {
+			return nil, err
+		}
+		stale, err := qtx.ExpireStaleQueuedTasks(ctx, arg)
+		return append(workflow, stale...), err
 	})
 }
 
@@ -6161,6 +6196,9 @@ func SettleTerminalTaskState(ctx context.Context, q *db.Queries, tasks ...db.Age
 	taskIDs := make([]pgtype.UUID, 0, len(tasks))
 	for _, task := range tasks {
 		taskIDs = append(taskIDs, task.ID)
+		if err := settleScriptFailure(ctx, q, task); err != nil {
+			return err
+		}
 	}
 	if _, err := q.SettleTerminalTaskSupplements(ctx, taskIDs); err != nil {
 		return fmt.Errorf("settle terminal task supplements: %w", err)
@@ -6274,6 +6312,9 @@ func delegatedFailureRecoveryContent(failed, source db.AgentTaskQueue) string {
 // Lifecycle is checked only at dispatch: even an unresolved or paused status
 // must leave a durable signal that can be replayed when it becomes executable.
 func loadDelegatedFailureRecoveryTarget(ctx context.Context, q *db.Queries, failed db.AgentTaskQueue) (*delegatedFailureRecoveryTarget, error) {
+	if issueworkflow.ParseExecution(failed.Context) != nil {
+		return nil, nil
+	}
 	if failed.Status != "failed" || !failed.DelegatedFromTaskID.Valid || failed.AutopilotRunID.Valid ||
 		(failed.TriggerEvidenceKind.Valid && failed.TriggerEvidenceKind.String == string(attribution.EvidenceDelegatedFailure)) {
 		return nil, nil
@@ -6721,6 +6762,9 @@ func (s *TaskService) dispatchDelegatedFailureRecovery(ctx context.Context, targ
 // delegated terminal; the production terminal paths deliberately retain their
 // legacy raw-error notice alongside the richer coordinator recovery signal.
 func (s *TaskService) recoverDelegatedTaskFailure(ctx context.Context, failed db.AgentTaskQueue) (handled bool, err error) {
+	if issueworkflow.ParseExecution(failed.Context) != nil {
+		return false, nil
+	}
 	target, _, err := s.ensureDelegatedFailureRecoveryComment(ctx, failed.ID)
 	if err != nil || target == nil {
 		return false, err

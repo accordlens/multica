@@ -555,7 +555,31 @@ const ISSUE_WORKFLOW_HANDLER_TYPES = new Set<string>([
   "none", "agent", "squad", "member", "project_lead", "creator",
 ]);
 
+const WorkflowScriptSchema = z.object({
+  id: z.string(), version: z.string(), checkout: z.string(), directory: z.string(),
+  command: z.array(z.string()), required_env: z.array(z.string()),
+  timeout_seconds: z.number(), budget_seconds: z.number(), max_repairs: z.number(),
+  required_checks: z.array(z.string()), files: z.record(z.string(), z.string()),
+}).loose();
+
+export const WorkflowEvidenceSchema = z.object({
+  run_id: z.string(), source: z.object({ sha: z.string(), dirty_hash: z.string().optional() }),
+  workflow_version: z.string(), script_version: z.string().optional(), script_hash: z.string().optional(), outcome: z.string(),
+  exit_code: z.number(), started_at: z.string(), finished_at: z.string(),
+  report_id: z.string().optional(), report_hash: z.string().optional(),
+  report: z.string().optional(), log: z.string().optional(), log_hash: z.string().optional(), reason: z.string().optional(),
+}).loose();
+
+const WorkflowExecutionSchema = z.object({
+  kind: z.string(), root_task_id: z.string(), workflow_id: z.string(), workflow_version: z.string(),
+  step_key: z.string(), source: z.object({ sha: z.string(), dirty_hash: z.string().optional() }),
+  script: WorkflowScriptSchema, repairs: z.number(), deadline: z.string(),
+  evidence: WorkflowEvidenceSchema.optional().catch(undefined),
+  block_reason: z.string().optional(), review_verdict: z.string().optional(),
+}).loose();
+
 const IssueWorkflowStepSchema = z.object({
+  script: WorkflowScriptSchema.optional(),
   status_key: z.string(),
   handler: IssueWorkflowHandlerSchema.default({ type: "none" }),
   instructions: z.string().default(""),
@@ -2024,6 +2048,9 @@ const TaskUsageSchema = z.object({
 }).loose();
 
 export const AgentTaskSchema = z.object({
+  workflow_step: z.string().optional().catch(undefined),
+  workflow_execution: WorkflowExecutionSchema.optional().catch(undefined),
+  workflow_evidence: WorkflowEvidenceSchema.optional().catch(undefined),
   wakeup_id: z.string().optional().catch(undefined),
   cancelled_by_comment_change: z.boolean().optional().catch(undefined),
   cancelled_by: TaskCancellationActorSchema.optional().catch(undefined),

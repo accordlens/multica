@@ -20,11 +20,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/integrations/slack"
 	"github.com/multica-ai/multica/server/internal/issuestatus"
+	"github.com/multica-ai/multica/server/internal/issueworkflow"
 	"github.com/multica-ai/multica/server/internal/logger"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
@@ -2822,6 +2824,30 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 		// Project workflow (MUL-7420): best-effort, like the status catalog
 		// below — a failure degrades to the workspace-wide status rules.
 		resp.ProjectWorkflow = h.claimProjectWorkflow(r.Context(), issue, task)
+		if issueworkflow.ParseExecution(task.Context) == nil && resp.ProjectWorkflow != nil && resp.ProjectWorkflow.Gate != nil {
+			gate := *resp.ProjectWorkflow.Gate
+			gate.RootTaskID = uuidToString(task.ID)
+			gate.SourceTaskID = uuidToString(task.ID)
+			gate.AuthorID = uuidToString(task.AgentID)
+			gate.AuthorRuntimeID = uuidToString(task.RuntimeID)
+			gate.Deadline = time.Now().UTC().Add(time.Duration(gate.Script.BudgetSeconds) * time.Second)
+			var envelope map[string]any
+			_ = json.Unmarshal(task.Context, &envelope)
+			if envelope == nil {
+				envelope = map[string]any{}
+			}
+			envelope["hybrid_workflow"] = gate
+			raw, _ := json.Marshal(envelope)
+			pinned, pinErr := h.Queries.SetClaimedTaskContext(r.Context(), db.SetClaimedTaskContextParams{ID: task.ID, DispatchedAt: task.DispatchedAt, Context: raw})
+			if pinErr != nil {
+				return resp, deliveredCommentIDs, issueSnapshot, agentSkillCount, builtinSkillCount, &claimBuildFailure{outcome: "workflow_snapshot", status: http.StatusInternalServerError, message: "failed to pin workflow definition"}
+			}
+			*task = pinned
+			resp.WorkflowExecution = &gate
+		}
+		if execution := issueworkflow.ParseExecution(task.Context); execution != nil && !requestHasClientCapability(r, protocol.DaemonCapabilityWorkflowScriptsV1) {
+			return resp, deliveredCommentIDs, issueSnapshot, agentSkillCount, builtinSkillCount, h.failClaimedTaskBeforeLaunch(r.Context(), task, "This workflow requires a runtime supporting workflow-scripts-v1.", taskfailure.ReasonInvalidTaskIdentity, "workflow_scripts_unsupported", http.StatusConflict, "runtime cannot execute script workflows")
+		}
 
 		// Load every planned input as one chronological, de-duplicated set.
 		// The trigger is included here so the delivery receipt can only contain
@@ -3736,6 +3762,10 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 		resp.InitiatorEmail = originator.Email
 	}
 
+	if execution := issueworkflow.ParseExecution(task.Context); execution != nil && execution.Kind == "repair" {
+		resp.PriorWorkDir = execution.WorkDir
+		resp.PriorSessionID = ""
+	}
 	return resp, deliveredCommentIDs, issueSnapshot, agentSkillCount, builtinSkillCount, nil
 }
 
@@ -4292,10 +4322,11 @@ func (h *Handler) ReportTaskProgress(w http.ResponseWriter, r *http.Request) {
 
 // CompleteTask marks a running task as completed.
 type TaskCompleteRequest struct {
-	PRURL     string `json:"pr_url"`
-	Output    string `json:"output"`
-	SessionID string `json:"session_id"` // Claude session ID for future resumption
-	WorkDir   string `json:"work_dir"`   // working directory used during execution
+	WorkflowEvidence *issueworkflow.Evidence `json:"workflow_evidence,omitempty"`
+	PRURL            string                  `json:"pr_url"`
+	Output           string                  `json:"output"`
+	SessionID        string                  `json:"session_id"` // Claude session ID for future resumption
+	WorkDir          string                  `json:"work_dir"`   // working directory used during execution
 	// DurableWorkDir is the configured project directory that replaces a
 	// disposable task worktree after the daemon confirms the worktree is gone.
 	DurableWorkDir string `json:"durable_work_dir,omitempty"`
@@ -4322,6 +4353,21 @@ type TaskCompleteRequest struct {
 // durable_work_dir, branch_name, session_id) are all TEXT, and result is
 // JSONB; neither tolerates a NUL.
 func sanitizeTaskCompleteRequest(req *TaskCompleteRequest) {
+	if req.WorkflowEvidence != nil {
+		raw, err := json.Marshal(req.WorkflowEvidence)
+		var decoded any
+		if err == nil && json.Unmarshal(raw, &decoded) == nil {
+			clean, _ := json.Marshal(util.SanitizeJSONForPostgres(decoded))
+			var evidence issueworkflow.Evidence
+			if json.Unmarshal(clean, &evidence) == nil {
+				req.WorkflowEvidence = &evidence
+			} else {
+				req.WorkflowEvidence = nil
+			}
+		} else {
+			req.WorkflowEvidence = nil
+		}
+	}
 	req.PRURL = util.SanitizeTextForPostgres(req.PRURL)
 	req.Output = util.SanitizeTextForPostgres(req.Output)
 	req.SessionID = util.SanitizeTextForPostgres(req.SessionID)

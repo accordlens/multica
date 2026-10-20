@@ -10,11 +10,10 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-
-	"github.com/multica-ai/multica/server/pkg/remotemcp"
 	"time"
 
 	"github.com/multica-ai/multica/server/pkg/protocol"
+	"github.com/multica-ai/multica/server/pkg/remotemcp"
 )
 
 func TestClient_IdentityHeaders_PostJSON(t *testing.T) {
@@ -36,6 +35,7 @@ func TestClient_IdentityHeaders_PostJSON(t *testing.T) {
 			capabilities[strings.TrimSpace(capability)] = true
 		}
 		for _, want := range []string{
+			protocol.DaemonCapabilityWorkflowScriptsV1,
 			protocol.DaemonCapabilitySkillBundlesV1,
 			protocol.DaemonCapabilityCoalescedCommentsV1,
 			// The worktree gate is decided entirely from this header: if the
