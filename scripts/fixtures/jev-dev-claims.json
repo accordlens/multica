@@ -29,7 +29,7 @@
     },
     {
       "id": "q15_en", "question_id": "Q15", "language": "EN-original",
-      "refs": ["SYN-4/s4.c1@rev1"],
+      "refs": ["SYN-4/description_revisions@rev1", "SYN-4/s4.c1@rev1"],
       "claims": [
         {"text": "The old key id k-17 was revoked after INC-7.", "expected": "supported"},
         {"text": "The old key id k-17 was not revoked after INC-7.", "expected": "contradicted"}
