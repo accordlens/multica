@@ -120,6 +120,28 @@ A changed decision remains an ordinary durable `decision.changed` comment.
 Parallel tasks can reference the same source task/thread/decision; they do not
 receive new authority or become unblocked merely because they have that link.
 
+## ACCO-95 integration input
+
+The candidate communication contract in [PR #7](https://github.com/accordlens/multica/pull/7)
+at `b40434243b0cdc27e93e59d43d327b6b91b3f429` was inspected. Native provenance
+maps without introducing another task or run identity:
+
+- `run_id` corresponds to `context.task_id` (`agent_task_queue.id`).
+- `issue_id` corresponds to `context.issue_id`.
+- `workflow_id` corresponds to `context.workflow_id`.
+- `workflow_version` supplies `context.workflow_definition_sha256`.
+- `workflow_step` supplies `context.status_key` with
+  `context.status_source=agent_task_queue.workflow_step`.
+- `source_revision` supplies the same full source SHA.
+
+This transport prototype is not yet the ACCO-95 checked communication payload.
+After the shared base and that contract are accepted, integration must carry
+the approved immutable message and contract snapshots, compare them to these
+native routing pins, and run both checkers before final acceptance. Preserve the
+distinction between no automatic agent reply and a required human acceptance or
+fix: ACCO-95's expected human response must not be erased by transport `none`.
+No role profile was activated and no wire-format compatibility is claimed here.
+
 ## Run the local pilot
 
 Use the managed worktree environment with a separate synthetic database. Do not
@@ -169,6 +191,8 @@ The browser check is `pnpm exec playwright test e2e/review-handoff.spec.ts`. It
 uses `TestApiClient` to create/clean synthetic task data and captures
 `test-results/review-handoff.png`. No daemon or provider is needed.
 
+![Two scoped role subscriptions, participants, expected response and live task history](assets/review-handoff.png)
+
 ## Measurements and failure cases
 
 The local `-race` pilot passed 35 cases with zero skips. It observed:
@@ -196,13 +220,26 @@ provider spend is $0 because no provider is invoked. Actual Dev/QA runtime cost
 is separate and must come from Multica usage; it is not measured by this test.
 No model quality, provider turnaround or token-saving claim is made.
 
+Full local regression evidence for the implementation at `6828518ff` includes
+9509 frontend tests, typecheck/lint, 69 regular Go packages and the agent adapter
+package with `-race`, and the browser test with both role subscriptions. Backend regression used a separate
+managed synthetic database and a detached checkout outside the agent task
+directory. Only the test process ignored injected task credentials and the host
+Git config; package concurrency was one. The initial ordinary checkout run
+inherited a daemon-task marker, Git signing/identity settings and parallel
+fixture collisions. CLI and Git failures were reproduced on the unchanged
+ACCO-128 base. No global Git setting, agent config or production data was changed.
+
 ## Limits, ACL and rollback
 
 This pilot supports explicit named project workflows, excludes squad-owned
 conversations with their separate leader/worker routing, and supports up to 100 handoff
 records per subscribed sender in one root thread (maximum 12KB and eight artifact references per
 envelope). Exceeding the bound fails closed with a visible diagnostic; use a new
-scoped thread. Delivery follows committed comment order, not sender clock order.
+scoped thread. The newest matching committed request is selected, independent
+of sender clock order. The subscription authorizes one request, not a backlog
+of distinct work. A newer request that changes already frozen evidence requires
+an explicit retry rather than silently substituting another prompt.
 Reposting identical producer data is harmless; changed content cannot silently
 replace a frozen prompt. Missing/out-of-order lineage waits for a later poll.
 

@@ -54,16 +54,18 @@ test("a pinned review subscription stays visible in the existing task", async ({
     const definition = await fetch(`${base}/api/issue-workflows/${workflowId}`, { headers });
     expect(definition.status).toBe(200);
     const version = (await definition.json()).definition_version;
-    const saved = await fetch(`${base}/api/issues/${issue.id}/wakeups`, {
-      method: "POST", headers, body: JSON.stringify({
-        agent_id: agents[1], instruction: "Review only the pinned revision. Return one review.result in the source thread.",
-        kind: "event", mode: "once", expires_in_seconds: 3600,
-        condition: { type: "review_handoff", handoff: {
-          thread_id: root.id, sender_id: agents[0], workflow_id: workflowId, workflow_version: version, source_revision: "a".repeat(40),
-        } },
-      }),
-    });
-    expect(saved.status).toBe(201);
+    for (const [sender, recipient] of [[agents[0], agents[1]], [agents[1], agents[0]]]) {
+      const saved = await fetch(`${base}/api/issues/${issue.id}/wakeups`, {
+        method: "POST", headers, body: JSON.stringify({
+          agent_id: recipient, instruction: "Review only the pinned revision. Return one review.result in the source thread.",
+          kind: "event", mode: "once", expires_in_seconds: 3600,
+          condition: { type: "review_handoff", handoff: {
+            thread_id: root.id, sender_id: sender, workflow_id: workflowId, workflow_version: version, source_revision: "a".repeat(40),
+          } },
+        }),
+      });
+      expect(saved.status).toBe(201);
+    }
 
     await page.addInitScript((token) => {
       localStorage.setItem("multica_token", token!);
@@ -71,9 +73,11 @@ test("a pinned review subscription stays visible in the existing task", async ({
     }, api.getToken());
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto(`/${workspace.slug}/issues/${issue.id}`, { waitUntil: "domcontentloaded" });
-    const subscription = page.getByRole("button", { name: /When review is requested for aaaaaaaaaaaa/ });
+    const subscriptions = page.getByRole("button", { name: /When review is requested for aaaaaaaaaaaa/ });
+    const subscription = subscriptions.filter({ hasText: "Handoff QA" });
     await expect(subscription).toBeVisible({ timeout: 45_000 });
     await expect(subscription).toContainText("Handoff QA");
+    await expect(subscriptions.filter({ hasText: "Handoff Dev" })).toBeVisible();
     await expect(page.getByText("Expected response: one review.result for revision aaaaaaaaaaaa.", { exact: true })).toBeVisible();
     await api.createComment(issue.id, "Decision unchanged: waiting for the pinned review report.");
     await expect(page.locator("p").filter({ hasText: "Decision unchanged: waiting for the pinned review report." })).toBeVisible();
