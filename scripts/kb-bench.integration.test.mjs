@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { project } from "./kb-bench.mjs";
+import { backendInput, project } from "./kb-bench.mjs";
 
 test("real PostgreSQL: revisions, tombstone, workspace denial, and repeatable cleanup on an independent mini-corpus", {
   skip: process.env.KBBENCH_RUN_INTEGRATION !== "1",
@@ -32,9 +32,10 @@ test("real PostgreSQL: revisions, tombstone, workspace denial, and repeatable cl
     // A second full import proves cleanup left no fixture application rows.
     for (const attempt of ["first", "second"]) {
       const manifest = join(directory, `${attempt}.json`);
-      const child = invoke([], manifest, JSON.stringify(plan));
+      const child = invoke([], manifest, JSON.stringify(backendInput(plan)));
       assert.equal(child.status, 0, child.stderr);
       const result = JSON.parse(child.stdout);
+      assert.deepEqual(result.supported_source_kinds, ["description", "comment"]);
       const row = result.responses[0];
       assert.equal(row.queries[0].status, 200);
       assert.equal(row.denied_probes.length, 1);
@@ -62,7 +63,7 @@ test("real PostgreSQL: revisions, tombstone, workspace denial, and repeatable cl
     const bad = structuredClone(plan);
     bad.plans[0].documents[0].issue_id = "bad-identity";
     const failedManifest = join(directory, "failed.json");
-    const failed = invoke([], failedManifest, JSON.stringify(bad));
+    const failed = invoke([], failedManifest, JSON.stringify(backendInput(bad)));
     assert.notEqual(failed.status, 0, "failed imports must not look successful");
     assert.equal(JSON.parse(readFileSync(failedManifest, "utf8")).status, "cleaned", "error paths clean their own committed setup");
   } finally { rmSync(directory, { recursive: true, force: true }); }

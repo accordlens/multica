@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
+import { loadFrozenDev } from "./kb-bench-package.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const hash = (value) => createHash("sha256").update(value).digest("hex");
@@ -54,6 +55,7 @@ export function project(sources, questions, split = "dev", config = {}) {
       check(allSourceIDs.includes(event.comment), `Unknown event source ${id}`);
       return event;
     });
+    if (config.apply_timestamped_deletions) events.push(...(sources.events ?? []).filter((e) => e.type === "comment_deleted" && instant(e.at) <= at));
     const documents = sources.issues.flatMap((issue) => {
       const description = latest(issue.description_revisions, at);
       if (!description) return [];
@@ -87,7 +89,8 @@ export function project(sources, questions, split = "dev", config = {}) {
       asked_at: new Date(at).toISOString(), setup: q.setup ?? null, documents };
   });
   return { synthetic: true, corpus: sources.corpus, split, workspaces: sources.workspaces, plans,
-    limitations: ["Issue ranking, not ranked source chunks", "Run artifacts and branch heads are not indexed or fabricated as comments",
+    limitations: ["Source packet order: native issue rank, then description and live comments in creation order; first five distinct references",
+      "Run artifacts and branch heads are not indexed or fabricated as comments",
       "setup prose is retained, not executed; event mappings must be reviewed in config", "No answer generation, claim extraction, or summary worker"] };
 }
 
@@ -100,8 +103,9 @@ export function validateLabels(labels, plans, split) {
     check(["answered", "unknown", "conflict", "denied"].includes(l.state), `Invalid state ${l.question_id}`);
     for (const key of ["must_say", "must_not", "critical"]) check(Array.isArray(l[key]) && l[key].every((v) => typeof v === "string"), `Invalid ${key} ${l.question_id}`);
     check(Array.isArray(l.must_cite), `Invalid must_cite ${l.question_id}`);
+    check(l.evidence_groups === undefined || (Array.isArray(l.evidence_groups) && l.evidence_groups.every((g) => typeof g.id === "string" && Array.isArray(g.any_of) && g.any_of.length > 0)), `Invalid evidence groups ${l.question_id}`);
     check(l.alternative_citation_sets === undefined || (l.must_cite.length > 0 && Array.isArray(l.alternative_citation_sets) && l.alternative_citation_sets.every((set) => Array.isArray(set) && set.length > 0)), `Invalid equivalent citation sets ${l.question_id}`);
-    for (const c of [l.must_cite, ...(l.alternative_citation_sets ?? [])].flat()) check(typeof c.source_id === "string" && Number.isInteger(c.revision) && c.revision > 0 && /^[a-f0-9]{64}$/.test(c.content_sha256) && (!c.source_sha || /^[a-f0-9]{40}$/.test(c.source_sha)), `Invalid citation ${l.question_id}`);
+    for (const c of [l.must_cite, ...(l.alternative_citation_sets ?? []), ...(l.evidence_groups ?? []).map((g) => g.any_of)].flat()) check(typeof c.source_id === "string" && ((Number.isInteger(c.revision) && c.revision > 0) || (["run", "fixture_snapshot"].includes(c.kind) && c.revision === null && /^[a-f0-9]{64}$/.test(c.sources_sha256))) && /^[a-f0-9]{64}$/.test(c.content_sha256) && (!c.source_sha || /^[a-f0-9]{40}$/.test(c.source_sha)), `Invalid citation ${l.question_id}`);
   }
 }
 
@@ -133,18 +137,52 @@ const rate = (numerator, denominator) => denominator ? { status: "measured", num
 const sameCitation = (a, b) => a.source_id === b.source_id && a.revision === b.revision && a.content_sha256 === b.content_sha256 && (a.source_sha ?? null) === (b.source_sha ?? null);
 const samples = (values, unit) => values.length ? { status: "measured", unit, samples: values, max: Math.max(...values) } : notMeasured("No instrumentation samples");
 
+// A deliberately simple B0 source selector, separate from the judge. It sees
+// only real backend candidates, never labels, thresholds or expected_sources.
+export function sourcePacket(row) {
+  const seen = new Set();
+  return row.hits.slice(0, 5).flatMap((h) => h.sources).filter((c) => {
+    const key = JSON.stringify([c.source_id, c.revision, c.content_sha256, c.source_sha ?? null]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 5);
+}
+
+export function backendInput(plan) {
+  return { synthetic: plan.synthetic, workspaces: plan.workspaces, plans: plan.plans.map((p) => ({
+    question_id: p.question_id, query: p.query, asker_id: p.asker_id, workspaces: p.workspaces, documents: p.documents,
+  })) };
+}
+
+const hasEvidence = (label) => label.evidence_groups ? label.evidence_groups.length > 0 : label.must_cite.length > 0;
+const covers = (label, evidence, predicate = sameCitation) => label.evidence_groups
+  ? label.evidence_groups.every((g) => g.any_of.some((expected) => evidence.some((actual) => predicate(expected, actual))))
+  : [label.must_cite, ...(label.alternative_citation_sets ?? [])].some((set) => set.every((expected) => evidence.some((actual) => predicate(expected, actual))));
+
 export function score(labels, run, ratings) {
   const rows = run.responses;
   unique(rows.map((r) => r.question_id), "response ID");
   check(rows.length === labels.labels.length && labels.labels.every((l) => rows.some((r) => r.question_id === l.question_id)), "Missing or extra raw responses");
-  let eligible = 0, found = 0, returned = 0, invalid = 0, leaks = 0;
+  let eligible = 0, found = 0, returned = 0, invalid = 0, leaks = 0, sourceMeasured = 0, sourceFound = 0;
+  const sourceCases = [];
   for (const label of labels.labels) {
     const row = rows.find((r) => r.question_id === label.question_id);
     check(Array.isArray(row.hits) && Array.isArray(row.expected_sources), "Malformed backend response");
     const evidence = row.hits.slice(0, 5).flatMap((h) => h.sources).filter((c) => row.allowed_workspaces.includes(c.workspace) && row.expected_sources.some((s) => sameCitation(s, c)));
-    if (label.must_cite.length) {
+    if (hasEvidence(label)) {
       eligible++;
-      if ([label.must_cite, ...(label.alternative_citation_sets ?? [])].some((set) => set.every((expected) => evidence.some((actual) => sameCitation(expected, actual))))) found++;
+      if (covers(label, evidence)) found++;
+      const kinds = run.supported_source_kinds ?? [];
+      const supported = Array.isArray(row.ranked_sources) && covers(label, kinds, (expected, kind) => !expected.kind || expected.kind === kind);
+      if (!supported) sourceCases.push({ question_id: label.question_id, ...notMeasured("Required source kind or source ranking is unsupported by this backend") });
+      else {
+        const top = row.ranked_sources.slice(0, 5).filter((c) => row.allowed_workspaces.includes(c.workspace) && row.expected_sources.some((s) => sameCitation(s, c)));
+        const success = covers(label, top);
+        sourceMeasured++;
+        if (success) sourceFound++;
+        sourceCases.push({ question_id: label.question_id, status: "measured", success });
+      }
     }
     for (const citation of row.hits.flatMap((h) => h.sources)) {
       returned++;
@@ -152,20 +190,24 @@ export function score(labels, run, ratings) {
       if (!row.allowed_workspaces.includes(citation.workspace)) leaks++;
     }
   }
-  const retrieval = rate(found, eligible);
+  const retrieval = sourceMeasured === eligible ? rate(sourceFound, eligible) : {
+    ...notMeasured("Some eligible questions require unsupported source kinds/ranking; do not count them as misses"),
+    supported_subset: rate(sourceFound, sourceMeasured), frozen_eligible_denominator: eligible,
+  };
   const deletedExposures = rows.flatMap((r) => r.raw_deleted_text_exposures ?? []);
   const result = {
-    evidence_kind: run.evidence_kind, retrieval_unit: "all required sources hydrated from the top five ranked issues; sources within an issue are not ranked",
-    retrieval_all_sources_top5: retrieval,
+    evidence_kind: run.evidence_kind, retrieval_unit: "first five distinct source references selected from native issue candidates",
+    retrieval_sources_top5: retrieval, retrieval_by_question: sourceCases,
+    issue_hydration_coverage_at5: rate(found, eligible),
     dev_retrieval_gate: run.split === "dev" && retrieval.status === "measured" ? {
       threshold: run.dev_retrieval_min_all_sources_top5, passed: retrieval.value >= run.dev_retrieval_min_all_sources_top5,
       cognee_eligible: run.evidence_kind === "real_search_backend" && retrieval.value < run.dev_retrieval_min_all_sources_top5,
-    } : notMeasured("Only frozen dev runs can evaluate the retrieval gate"),
+    } : { ...notMeasured("The complete frozen dev source metric is required"), cognee_eligible: false },
     source_integrity: { returned, invalid_revision_hash_or_deleted: invalid, acl_leaks: leaks },
     raw_backend_deleted_source_exposure: rows.every((r) => Array.isArray(r.raw_deleted_text_exposures)) ? { status: "measured_lower_bound", detected_count: deletedExposures.length, source_ids: deletedExposures,
       method: "Exact full deleted-source text in raw response strings, excluding texts also present in live sources; zero does not exclude partial snippet exposure" } : notMeasured("No raw snippet detector observations"),
     raw_backend_safety: deletedExposures.length ? { status: "failed", reason: "Raw search disclosed deleted text; filtered hydration is a separate evidence layer" } : notMeasured("Snippets lack source ID/revision; complete safety cannot be established"),
-    source_chunk_recall_at_5: notMeasured("The existing endpoint ranks issues, not source chunks"),
+    source_chunk_recall_at_5: notMeasured("No text chunk retrieval; source references are evaluated separately"),
     answer_state_and_must_say: notMeasured("Requires a real answer and a rubric assessment; evidence packets are not answers"),
     answer_citations: notMeasured("Evidence integrity is measured separately from answer citations"),
     critical_loss: notMeasured("Requires rubric assessment"), unknown: notMeasured("Requires rubric assessment"),
@@ -214,28 +256,31 @@ function command(program, args, options = {}) {
 
 function main() {
   const { positionals, values: v } = parseArgs({ allowPositionals: true, options: Object.fromEntries(
-    ["sources", "questions", "config", "labels", "freeze", "split", "out", "backend-bin", "variant", "test-ledger", "raw", "ratings"].map((name) => [name, { type: "string" }]),
+    ["sources", "questions", "config", "labels", "freeze", "split", "out", "backend-bin", "variant", "test-ledger", "raw", "ratings", "dev-package", "dev-manifest-sha256"].map((name) => [name, { type: "string" }]),
   ) });
   const mode = positionals[0];
+  const pkg = v["dev-package"] ? loadFrozenDev(v["dev-package"], v["dev-manifest-sha256"]) : null;
+  if (pkg) check(!v.split || v.split === "dev", "The developer package cannot run test");
+  if (pkg) check(!v.sources && !v.questions && !v.labels && !v.config && !v.freeze, "Use only the pinned developer package inputs");
   if (mode === "score") {
     const run = json(v.raw);
     run.raw_sha256 = fileHash(v.raw);
-    const labels = json(v.labels);
-    check(run.hashes.labels === fileHash(v.labels), "Labels differ from recorded run");
+    const labels = pkg?.labels ?? json(v.labels);
+    check(run.hashes.labels === (pkg?.hashes.labels ?? fileHash(v.labels)), "Labels differ from recorded run");
     validateLabels(labels, run.responses, run.split);
     writeJSON(v.out, score(labels, run, v.ratings ? json(v.ratings) : undefined));
     return;
   }
   check(mode === "prepare" || mode === "run", "Usage: node scripts/kb-bench.mjs prepare|run|score (see docs/knowledge-benchmark.md)");
-  const config = v.config ? json(v.config) : {};
-  const plan = project(json(v.sources), json(v.questions), v.split ?? "dev", config);
+  const config = pkg ? { source_selection: "native_issue_order_then_description_and_comment_creation_order_v1", apply_timestamped_deletions: true } : v.config ? json(v.config) : {};
+  const plan = project(pkg?.sources ?? json(v.sources), pkg?.questions ?? json(v.questions), v.split ?? "dev", config);
   if (mode === "prepare") { writeJSON(v.out, plan); return; }
-  check(v.config && v.labels && v.freeze && v.variant && v["backend-bin"] && v.out, "run requires config, split labels, freeze, variant, backend-bin and out");
-  const labels = json(v.labels);
+  check((pkg || (v.config && v.labels && v.freeze)) && v.variant && v["backend-bin"] && v.out, "run requires frozen inputs, variant, backend-bin and out");
+  const labels = pkg?.labels ?? json(v.labels);
   validateLabels(labels, plan.plans, plan.split);
   if (plan.split === "test") check(plan.plans.length >= 25, "The final test requires at least 25 questions");
-  const hashes = Object.fromEntries(["sources", "questions", "config", "labels", "freeze"].map((k) => [k, fileHash(v[k])]));
-  const threshold = validateFreeze(json(v.freeze), hashes, plan.split);
+  const hashes = pkg ? { ...pkg.hashes, config: hash(JSON.stringify(config)) } : Object.fromEntries(["sources", "questions", "config", "labels", "freeze"].map((k) => [k, fileHash(v[k])]));
+  const threshold = pkg ? pkg.thresholds.retrieval_dev.minimum / pkg.thresholds.retrieval_dev.denominator : validateFreeze(json(v.freeze), hashes, plan.split);
   const codeSHA = command("git", ["rev-parse", "HEAD"]);
   check(command("git", ["status", "--porcelain"]) === "", "Commit the harness and configuration before measurement; use an output directory outside the checkout");
   const backend = resolve(v["backend-bin"]);
@@ -251,11 +296,12 @@ function main() {
   }
   const manifest = { schema_version: 1, run_id: runID, corpus: plan.corpus, variant: v.variant, code_sha: codeSHA,
     started_at: new Date().toISOString(), evidence_kind: "real_search_backend", split: plan.split,
-    hashes, config, backend_sha256: fileHash(backend), dev_retrieval_min_all_sources_top5: threshold, limitations: plan.limitations };
+    hashes, config, backend_sha256: fileHash(backend), dev_retrieval_min_all_sources_top5: threshold, limitations: plan.limitations,
+    ...(pkg ? { dev_package_manifest: pkg.manifest, frozen_retrieval_spec: pkg.thresholds.retrieval_dev } : {}) };
   writeJSON(join(runDirectory, "manifest.json"), manifest);
   const started = performance.now();
   const cpu = process.cpuUsage();
-  const child = spawnSync(backend, [], { cwd: root, encoding: "utf8", input: JSON.stringify(plan),
+  const child = spawnSync(backend, [], { cwd: root, encoding: "utf8", input: JSON.stringify(backendInput(plan)),
     maxBuffer: 64 * 1024 * 1024, timeout: 180_000,
     env: { ...process.env, KBBENCH_FIXTURE_MANIFEST: join(runDirectory, "fixture.json") } });
   // Keep failed/uncertain attempts and raw output. Never automatically retry.
@@ -274,6 +320,7 @@ function main() {
     // defines which exact revisions/hashes may be exposed at this snapshot.
     row.expected_sources = expected.expected_sources;
     row.allowed_workspaces = expected.workspaces;
+    row.ranked_sources = sourcePacket(row);
   }
   const rawPath = join(runDirectory, "raw.json");
   writeJSON(rawPath, raw);

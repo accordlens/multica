@@ -73,6 +73,7 @@ type fixture struct {
 }
 type citation struct {
 	ID        string `json:"source_id"`
+	Kind      string `json:"kind"`
 	Revision  int    `json:"revision"`
 	Hash      string `json:"content_sha256"`
 	Workspace string `json:"workspace"`
@@ -348,9 +349,9 @@ func nullableID(id string) any {
 	return id
 }
 
-func cite(id string, revision int, text, workspace string) citation {
+func cite(id string, revision int, text, workspace, kind string) citation {
 	digest := sha256.Sum256([]byte(text))
-	return citation{ID: id, Revision: revision, Text: text, Workspace: workspace, Hash: hex.EncodeToString(digest[:])}
+	return citation{ID: id, Kind: kind, Revision: revision, Text: text, Workspace: workspace, Hash: hex.EncodeToString(digest[:])}
 }
 
 func hydrate(ctx context.Context, conn *pgx.Conn, id string, doc document, comments map[string]string) ([]citation, error) {
@@ -359,7 +360,7 @@ func hydrate(ctx context.Context, conn *pgx.Conn, id string, doc document, comme
 	if err := conn.QueryRow(ctx, `SELECT description,revision FROM issue WHERE id=$1`, id).Scan(&text, &revision); err != nil {
 		return nil, err
 	}
-	result := []citation{cite(doc.Description.ID, revision, text, doc.Workspace)}
+	result := []citation{cite(doc.Description.ID, revision, text, doc.Workspace, "description")}
 	rows, err := conn.Query(ctx, `SELECT id::text,content,revision FROM comment WHERE issue_id=$1 AND deleted_at IS NULL ORDER BY created_at,id`, id)
 	if err != nil {
 		return nil, err
@@ -371,7 +372,7 @@ func hydrate(ctx context.Context, conn *pgx.Conn, id string, doc document, comme
 		if err := rows.Scan(&cid, &content, &revision); err != nil {
 			return nil, err
 		}
-		result = append(result, cite(comments[cid], revision, content, doc.Workspace))
+		result = append(result, cite(comments[cid], revision, content, doc.Workspace, "comment"))
 	}
 	return result, rows.Err()
 }
@@ -600,7 +601,8 @@ func run() (err error) {
 	}
 	return json.NewEncoder(os.Stdout).Encode(map[string]any{
 		"responses": responses, "query_identity_kind": "synthetic member projection of asker IDs and workspace memberships; token authentication is not exercised",
-		"backend": "in-process production RequireWorkspaceMember + SearchIssues + PostgreSQL; no network server",
+		"backend":                "in-process production RequireWorkspaceMember + SearchIssues + PostgreSQL; no network server",
+		"supported_source_kinds": []string{"description", "comment"},
 	})
 }
 

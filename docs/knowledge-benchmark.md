@@ -8,7 +8,7 @@ There is no schema change or new dependency.
 
 ## Evidence levels
 
-- `node --test scripts/kb-bench.test.mjs`: independent mini-fixtures exercise
+- `node --test scripts/kb-bench.test.mjs scripts/kb-bench-package.test.mjs`: independent mini-fixtures exercise
   projection, scorer and freeze/holdout guards. Mock responses are explicitly
   `mock_backend`; they cannot qualify a Cognee evaluation.
 - The opt-in integration test uses real PostgreSQL, the production
@@ -34,7 +34,7 @@ node scripts/kb-bench.mjs prepare \
   --questions ../benchmark-input/questions.json \
   --out ../benchmark-input/dev-plan.json
 
-node --test scripts/kb-bench.test.mjs
+node --test scripts/kb-bench.test.mjs scripts/kb-bench-package.test.mjs
 (cd server && go test ./cmd/kbbench && go vet ./cmd/kbbench)
 ```
 
@@ -77,7 +77,70 @@ The middleware still decides every selected workspace read and cross-workspace p
 Workspace/user ownership IDs are random; issue/comment UUIDs and issue timestamps
 are deterministic so SQL relevance tie-breaks do not depend on import timing.
 
-## Freeze contract and split labels
+## Frozen developer package
+
+ACCO-131 now supplies the independently adjudicated `acco97-dev-v1-A.zip`.
+It supersedes the raw v0 developer inputs. Download it through
+`multica attachment download`, verify its ZIP SHA256 against the issue, and unpack
+outside the checkout. Pin the trusted **dev manifest hash** from the issue:
+
+```sh
+node scripts/kb-bench.mjs prepare \
+  --dev-package ../benchmark-dev-v1/unpacked \
+  --dev-manifest-sha256 c2d730e7d0304e53bd027ecc94e1b46ef455cd08f8b44147124de27112236234 \
+  --out ../benchmark-dev-v1/plan.json
+
+test -z "$(git status --porcelain)"
+(cd server && go build -ldflags "-X main.commit=$(git rev-parse HEAD)" -o bin/kbbench ./cmd/kbbench)
+node scripts/kb-bench.mjs run \
+  --dev-package ../benchmark-dev-v1/unpacked \
+  --dev-manifest-sha256 c2d730e7d0304e53bd027ecc94e1b46ef455cd08f8b44147124de27112236234 \
+  --variant b0 --backend-bin server/bin/kbbench --out ../benchmark-dev-runs
+```
+
+The loader verifies every file's size/hash, dev-only record IDs, source bindings,
+the owner decision receipt and frozen threshold eligibility. It rejects extra
+files, test records and mixed raw/package overrides. `evidence_groups` are AND
+groups with `any_of` alternatives; the representative flat `must_cite` list adds
+no stricter requirement. Optional/conditional details are not promoted to required
+retrieval evidence. Field/event locators bind to the exact source-file hash with
+`revision: null`; run references bind their actual code SHA. They are not invented
+product revisions. Unsupported source kinds remain explicitly unmeasured.
+
+The frozen dev gate is **5/6** positive-evidence questions; the question without
+positive evidence remains in the answer evaluation but outside retrieval. Corpus
+deletion events are applied according to their timestamps. The backend receives
+only the question, memberships and temporal source projection. Labels, expected
+source catalog, thresholds, package receipt and judge rules stay on the scorer side.
+
+The existing endpoint ranks five candidate issues. B0 selects the first five
+distinct source references from those candidates, preserving native issue order,
+then description followed by live comments in creation order. This simple source
+selector is declared in the recorded config and fixed before measurement. The
+official `retrieval_sources_top5` metric uses **five source references**, not every
+source hydrated from five issues. `issue_hydration_coverage_at5` is a separate,
+generous diagnostic and cannot decide the frozen gate.
+
+A question requiring an unindexed run artifact is `not_measured`, not a retrieval
+miss. If any eligible question is unsupported, the report retains the frozen
+denominator plus measured-subset counts, and the complete gate stays `not_measured`.
+Neither that result nor a mock result qualifies Cognee. No holdout payload is
+needed for this developer path.
+
+Rescore without executing the backend again:
+
+```sh
+node scripts/kb-bench.mjs score --raw ../benchmark-dev-runs/RUN_ID/raw.json \
+  --dev-package ../benchmark-dev-v1/unpacked \
+  --dev-manifest-sha256 c2d730e7d0304e53bd027ecc94e1b46ef455cd08f8b44147124de27112236234 \
+  --out ../dev-rescored.json
+```
+
+## Standalone fixture/evaluator contract
+
+The following lower-level format is for independent infrastructure fixtures or
+an evaluator's separately frozen inputs. The developer path uses the package
+above, which retains the original adjudicated labels without manual rewriting.
 
 The coordinator retains original independent labels and adjudication evidence.
 If the reviewer format differs, normalize without changing meanings; review and
@@ -176,13 +239,13 @@ Search latency excludes import/hydration. Coordinator CPU/wall time and backend
 Go heap samples have explicit scope; tokens, backend CPU and process RSS remain
 `not_measured`. Go heap samples are not peak RAM.
 
-The retrieval threshold counts **questions for which every required citation
-appears in the full live-source hydration of the first five ranked issues**,
-divided by **questions with at least one required citation**. Both counts are
-reported. Hydration preserves database revisions/hashes and excludes tombstones;
-an independent snapshot projection checks source integrity and workspace scope.
-This generous issue-level coverage is not ranked source/chunk recall or answer
-correctness. All semantic metrics and answer citation accuracy remain
+The retrieval threshold counts **questions whose mandatory evidence groups are
+covered by the first five distinct source references**, divided by **questions
+with positive required evidence**. Both counts are reported, and any unsupported
+case prevents a complete gate result. Hydration preserves database revisions/hashes
+and excludes tombstones; an independent snapshot projection checks source integrity
+and workspace scope. Full issue hydration coverage is only a separate diagnostic.
+All semantic metrics and answer citation accuracy remain
 `not_measured` for the search-only B0 adapter. The mini-fixture test also found that
 the current `SearchIssues` comment aggregation can expose a tombstoned comment in
 raw snippets (`server/internal/handler/issue.go`, `comment_matches` CTE has no
@@ -242,7 +305,8 @@ idempotent, and marks the manifest `cleaned`. It never drops the database or use
 Stop/remove only a task-owned disposable PostgreSQL container when finished;
 shared PostgreSQL and unrelated databases belong to their own environments.
 
-ACCO-131 remains incomplete until ACCO-128 is merged and this branch is adapted
-to that base, freeze and separate normalized dev labels/config are approved,
-the real-backend dev measurement is retained, and ClaudeQA reviews the exact PR
-head with required checks. This PR alone is a partial infrastructure delivery.
+Completion requires adaptation to merged ACCO-128, retained frozen-dev evidence,
+support for the source kinds needed to decide the complete gate, and independent
+review of the exact final PR head with required checks. A real search-only dev
+run may still expose explicit unmeasured capabilities; it is not a completed
+knowledge pilot or evidence of answer correctness.
