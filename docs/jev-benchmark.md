@@ -69,3 +69,55 @@ This CLI intentionally has no final-test mode. The independent evaluator must
 receive the frozen head/config and separately held final corpus, preserve a
 durable one-attempt-per-variant record, and run the final evaluation without
 author tuning or label exposure. A dev smoke test cannot satisfy that gate.
+
+## Independent holdout transport
+
+`scripts/jev-holdout.mjs` is a separate mechanical transport for independently
+prepared requests. It does not decrypt, prepare claims, read gold, calibrate or
+score. The existing dev CLI and its manifest/split checks are unchanged.
+
+```sh
+node --test scripts/jev-benchmark.test.mjs scripts/jev-holdout.test.mjs
+node scripts/jev-holdout.mjs /path/to/authorization.json /path/to/request-only.json
+# Only after all independent gates and the exact reservation readback:
+node scripts/jev-holdout.mjs /path/to/authorization.json /path/to/request-only.json --execute
+```
+
+The default only validates readiness and prints a request count. Execution needs
+an independent controller's `jev_evaluation_v1.execution_authorization` with
+`status: approved`, the exact authorization-file SHA256, canonical shared
+`register_root`, controller ID, preparation hashes and three review-receipt
+hashes (`preparation`, `translations`, `launcher`). No such authorization is
+created by this command. The sealed request envelope retains
+`dispatch_authorized: false`; permission is a separate record.
+
+The authorization file uses version 1 and binds `issue_id`, `freeze_sha256`,
+`endpoint`, `model`, `authorized`, `controller_agent_id`, `executor_agent_id`,
+`executor_task_id`, `executor_runtime_id`, `code_head`, `launcher_sha256`,
+`transport_sha256`, `register_root`, `protocol_sha256`, `requests_sha256`,
+`scoring_map_sha256`, `coverage_sha256`, `translations_sha256`, `approvals`,
+`max_input_tokens_per_request`, `reserved_usd`, `reservation_id`, and ordered
+`requests: [{id, sha256}]`. The issue's controller record repeats the preparation
+hashes and approvals. The existing cost ledger must contain a `reserved` row
+whose `job_id` is `reservation_id`, bound to these request bytes/count and the
+full remaining cap. USD comparison uses integer nanounits.
+
+The launcher checks the active Multica task/runtime, a clean exact Git head,
+source hashes, request-only schema, model, time and byte limits. It loads the
+immutable bytes once. All prospective executors must use the same canonical
+shared register root, pinned by the controller record, on the authorized host.
+An exclusive, flushed file keyed by the original v2 freeze claims the attempt;
+changing the job, input or output name does not bypass it. Before the first POST,
+the launcher rechecks current gates, writes `jev_holdout_attempt_v1` through the
+CLI and verifies its readback. A recorded attempt also prevents replay after a
+missing local claim. These controls prevent accidental concurrent/repeated work;
+agents sharing an OS user and write permissions are not strongly isolated.
+
+Claim/checkpoint/transport failure never removes the claim. Partial or uncertain
+work retains its full reservation and all available receipts for independent
+reconciliation. No automatic retry/resume is implemented. Create-only outcome
+files report counts/usage, while request/response bytes stay in the authorized
+receipt directory. Console errors are generic to avoid exposing held-out content.
+The original configuration freeze and measurement attribution are preserved;
+this new launcher needs its own exact-head review before an execution record is
+approved. Preparation alone does not authorize inference or production EN/PL.
