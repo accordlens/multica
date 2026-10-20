@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "communication",
+  "version": "1.0.0",
+  "human_language": "pl",
+  "agent_language": "en",
+  "standard_claim": "Original project policy inspired by ASD-STE100. English technical writing aid and Polish adaptation; no official compliance or certification claim.",
+  "rules": [
+    "For Patryk, write in Polish. State the result or problem first, then the evidence and next action. Match detail to the question.",
+    "Between agents, use clear STE-oriented English for prose and the versioned JSON envelope for handoffs. Keep machine fields stable.",
+    "Use a concrete subject and action. Prefer short sentences and one meaning per term. Keep necessary technical detail even when it needs a longer sentence.",
+    "Separate facts, hypotheses and unknowns. Cite inspectable sources for facts. State what would resolve an uncertainty.",
+    "Preserve code, commands, IDs, dates, numbers, negation, error meaning and certainty. Copy critical claims exactly into the evidence section.",
+    "Give the decision rationale and evidence. Do not transmit private reasoning traces.",
+    "Do not use praise, threats, rewards, metaphors, dramatic language or unsupported superlatives.",
+    "Keep the goal, result, sources, uncertainty and requested response explicit. Ask for a response only when an action or decision is needed.",
+    "A style change must not change the immutable data envelope. A person or independent reviewer checks semantic equivalence.",
+    "Make at most one style revision. Deliver critical failures and their original evidence even if the style checker fails. Never retry style automatically.",
+    "A checker result is evidence about its listed rules. It is not proof of STE compliance, correct language, successful tests or permission to merge."
+  ],
+  "max_style_revisions": 1,
+  "sentence_warning_words": {"en": 30, "pl": 35}
+}

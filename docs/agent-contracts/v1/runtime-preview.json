@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "runtime-preview",
+  "version": "1.0.0",
+  "activation": false,
+  "provider": null,
+  "model": null,
+  "thinking_level": null,
+  "service_tier": null,
+  "runtime_id": null,
+  "skill_bindings": null,
+  "secret_references": null,
+  "null_semantics": "No proposed change. Read the existing approved binding at an authorized future activation; never infer a plan or a price.",
+  "rollback": "Before any separately approved activation, save the exact old instructions and non-secret binding references. Restore that snapshot through the supported agent configuration path. Keep historical run receipts and reports."
+}
