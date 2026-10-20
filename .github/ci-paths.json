@@ -87,6 +87,7 @@
     "scripts/install.sh",
     "scripts/install.ps1",
     "scripts/check.sh",
+    "scripts/check.test.sh",
     "scripts/dev.sh",
     "scripts/local-env.sh",
     "scripts/init-worktree-env.sh",
@@ -106,7 +107,9 @@
     ".github/workflows/ci.yml",
     ".github/ci-paths.json",
     "scripts/ci-scope.mjs",
-    "scripts/ci-scope.test.mjs"
+    "scripts/ci-scope.test.mjs",
+    "scripts/selfhost-release.test.mjs",
+    "docker-compose.selfhost.release.yml"
   ],
   "installer": [
     "scripts/install.sh",
@@ -136,5 +139,30 @@
     ".github/ci-paths.json",
     "scripts/ci-scope.mjs",
     "scripts/ci-scope.test.mjs"
+  ],
+  "selfhost": [
+    ".env.windows.example",
+    "docker-compose.selfhost.windows.yml",
+    "scripts/selfhost-data.ps1",
+    "scripts/selfhost-data.test.ps1",
+    "Dockerfile",
+    "Dockerfile.web",
+    ".dockerignore",
+    "docker-compose.selfhost.yml",
+    "docker-compose.selfhost.build.yml",
+    "docker-compose.selfhost.release.yml",
+    "docker/**",
+    "scripts/selfhost-release.ps1",
+    "scripts/selfhost-release.test.mjs",
+    "server/**",
+    "apps/web/**",
+    "packages/**",
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "turbo.json",
+    ".npmrc",
+    ".github/workflows/ci.yml",
+    ".github/ci-paths.json"
   ]
 }

@@ -459,9 +459,7 @@ func makePropertyArchiveRun(archive bool) func(*cobra.Command, []string) error {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // issue property {list|set|unset}
-// ---------------------------------------------------------------------------
 
 // memberDirectory serves every member lookup in one command from a single
 // request. An actor --property filter, an actor --value and
@@ -722,8 +720,12 @@ func issuePropertyDisplayValues(property propertyDTO, value any, actorNames map[
 			names = append(names, formatMetadataValue(item))
 		case property.Type == "multi_select":
 			names = append(names, propertyOptionName(property, s))
-		default:
+		case property.Type == "multi_actor":
 			names = append(names, actorPropertyName(actorNames, s))
+		default:
+			// multi_text and multi_url are free-form. A string that happens to
+			// equal a member reference is still the text the user stored.
+			names = append(names, s)
 		}
 	}
 	return names
@@ -1030,9 +1032,7 @@ func runIssuePropertyUnset(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
 // issue list --property / --sort property:<ref>
-// ---------------------------------------------------------------------------
 
 // propertyNoValueSentinel is the server's reserved filter value meaning "the
 // property is not set" (see parsePropertiesFilterParam in

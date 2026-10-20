@@ -8,6 +8,9 @@
 
 # Multica
 
+For this fork's reproducible source builds and Windows Docker Desktop pilot,
+see [the fork release runbook](SELF_HOSTING_FORK_WINDOWS.md).
+
 **Agents that show up on the board.**
 
 Multica is a source-available workspace where you assign work to AI coding agents the way you'd
@@ -246,7 +249,7 @@ The docs are also available in [简体中文](https://multica.ai/docs/zh), [日�
 
 Contributors: start with the [Contributing Guide](CONTRIBUTING.md).
 
-**Prerequisites:** [Node.js](https://nodejs.org/) 22, [pnpm](https://pnpm.io/) 10.28.2, [Go](https://go.dev/) 1.26.6, [Docker](https://www.docker.com/)
+**Prerequisites:** [Node.js](https://nodejs.org/) 22, [pnpm](https://pnpm.io/) 10.28.2, [Go](https://go.dev/) 1.26.9, [Docker](https://www.docker.com/)
 
 ```bash
 make dev
