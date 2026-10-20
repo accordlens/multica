@@ -17,6 +17,7 @@ func newIssueRelationCmd() *cobra.Command {
 		args       int
 	}{
 		{"list <issue-id>", "List relations, readiness and waiting reasons", 1},
+		{"sync <issue-id>", "Sync explicit description references into context links", 1},
 		{"add <issue-id> <other-issue-id>", "Add an explicit dependency or context link", 2},
 		{"remove <issue-id> <relation-id>", "Remove a relation (retains its audit history)", 2},
 		{"accept <issue-id> <relation-id>", "Accept a delivered source revision (human credentials required)", 2},
@@ -57,6 +58,8 @@ func runIssueRelation(cmd *cobra.Command, args []string) error {
 	path := "/api/issues/" + issue.ID + "/relations"
 	var result map[string]any
 	switch cmd.Name() {
+	case "sync":
+		err = client.PostJSON(ctx, path+"/sync", map[string]any{}, &result)
 	case "list":
 		history, _ := cmd.Flags().GetBool("history")
 		if history {

@@ -1,3 +1,4 @@
+import { issueRelationKeys } from "./relations";
 import { issueStatusCategory } from "./status-category";
 import type { QueryClient } from "@tanstack/react-query";
 import { issueKeys } from "./queries";
@@ -358,6 +359,7 @@ export function onIssueAuxiliaryRevision(
   projection: AuxiliaryIssueProjection = "generic",
 ) {
   if (!revision || revision <= 0) return;
+  void qc.invalidateQueries({queryKey:issueRelationKeys.all(wsId)});
   recordAuxiliaryIssueRevision(qc, wsId, issueId, revision, projection);
   invalidateStaleIssueOwnerProjections(qc, wsId, issueId, revision);
 }

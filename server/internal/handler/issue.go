@@ -3526,6 +3526,9 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	issue := res.Issue
+	if _, linkErr := h.syncIssueContextLinks(r.Context(), issue); linkErr != nil {
+		slog.Warn("description context links need sync", "issue_id", uuidToString(issue.ID), "error", linkErr)
+	}
 	slog.Info("issue created", append(logger.RequestAttrs(r), "issue_id", uuidToString(issue.ID), "title", issue.Title, "status", issue.Status, "workspace_id", workspaceID)...)
 
 	resp := issueToResponse(issue, prefix)
@@ -4093,6 +4096,11 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	// move has overwritten the cached value (MUL-3669 / #4548).
 	projectChanged := req.ProjectID != nil && uuidToString(prevIssue.ProjectID) != uuidToString(issue.ProjectID)
 	descriptionChanged := req.Description != nil && textToPtr(prevIssue.Description) != resp.Description
+	if descriptionChanged {
+		if _, linkErr := h.syncIssueContextLinks(r.Context(), issue); linkErr != nil {
+			slog.Warn("description context links need sync", "issue_id", uuidToString(issue.ID), "error", linkErr)
+		}
+	}
 	titleChanged := req.Title != nil && prevIssue.Title != issue.Title
 	prevStartDate := dateToPtr(prevIssue.StartDate)
 	startDateChanged := prevStartDate != resp.StartDate && (prevStartDate == nil) != (resp.StartDate == nil) ||

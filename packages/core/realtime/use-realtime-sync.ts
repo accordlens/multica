@@ -1,5 +1,6 @@
 "use client";
 
+import { issueRelationKeys } from "../issues/relations";
 import { useEffect, useRef } from "react";
 import { forgetLocalSearchIndex } from "../search-index/instance";
 import { useQueryClient, type InfiniteData, type QueryClient, type QueryFilters } from "@tanstack/react-query";
@@ -646,6 +647,7 @@ function invalidateWorkspaceScopedQueries(qc: QueryClient): void {
   const wsId = getCurrentWsId();
   if (wsId) {
     qc.invalidateQueries({ queryKey: issueKeys.all(wsId) });
+    qc.invalidateQueries({ queryKey: issueRelationKeys.all(wsId) });
     // Through the inbox's own entry point, not a plain invalidate: a reconnect
     // can land during the list's first load, and a plain invalidate would be
     // answered by the request already on the wire (see refreshInboxQuery).
@@ -945,6 +947,8 @@ export function useRealtimeSync(
         if (wsId) qc.invalidateQueries({ queryKey: telegramKeys.installations(wsId) });
       },
       pull_request: () => {
+        const relationWsId = getCurrentWsId();
+        if (relationWsId) void qc.invalidateQueries({ queryKey: issueRelationKeys.all(relationWsId) });
         // PR list is keyed by issue id, not workspace, so we invalidate all
         // PR queries — the open issue detail page will refetch its own list.
         qc.invalidateQueries({ queryKey: ["github", "pull-requests"] });
@@ -1045,7 +1049,7 @@ export function useRealtimeSync(
     // Event types handled by specific handlers below -- skip generic refresh
     const specificEvents = new Set([
       "workspace:updated",
-      "issue:updated", "issue:created", "issue:deleted", "issue_attachments:changed", "issue_labels:changed", "issue_metadata:changed", "issue_properties:changed", "property:created", "property:updated", "inbox:new",
+      "issue:updated", "issue_relations:changed", "issue:created", "issue:deleted", "issue_attachments:changed", "issue_labels:changed", "issue_metadata:changed", "issue_properties:changed", "property:created", "property:updated", "inbox:new",
       "comment:created", "comment:updated", "comment:deleted",
       "comment:resolved", "comment:unresolved",
       "activity:created",
@@ -1084,12 +1088,18 @@ export function useRealtimeSync(
     // Filtering by actor_id would block other tabs of the same user.
     // Instead, both mutations and WS handlers use dedup checks to be idempotent.
 
+    const unsubIssueRelationsChanged = ws.on("issue_relations:changed", () => {
+      const wsId=getCurrentWsId();
+      if (wsId) void qc.invalidateQueries({queryKey:issueRelationKeys.all(wsId)});
+    });
+
     const unsubIssueUpdated = ws.on("issue:updated", (p) => {
       const payload = p as IssueUpdatedPayload;
       const { issue } = payload;
       if (!issue?.id) return;
       const wsId = getCurrentWsId();
       if (wsId) {
+        void qc.invalidateQueries({ queryKey: issueRelationKeys.all(wsId) });
         onIssueUpdated(qc, wsId, issue, {
           assigneeChanged: payload.assignee_changed,
           statusChanged: payload.status_changed,
@@ -1214,6 +1224,7 @@ export function useRealtimeSync(
       // updated_at, so the other comment events below deliberately do not.
       const wsId = getCurrentWsId();
       if (wsId) {
+        void qc.invalidateQueries({ queryKey: issueRelationKeys.all(wsId) });
         invalidateUpdatedAtSortedIssueLists(qc, wsId);
         invalidateLastActivitySortedIssueLists(qc, wsId);
         // A comment carries only the aggregate owner revision, not a full
@@ -1712,6 +1723,8 @@ export function useRealtimeSync(
     // stopped chat task had already streamed transcript rows, so refresh the
     // message page along with clearing pending.
     const unsubTaskCancelled = ws.on("task:cancelled", (p) => {
+      const relationWsId = getCurrentWsId();
+      if (relationWsId) void qc.invalidateQueries({ queryKey: issueRelationKeys.all(relationWsId) });
       const payload = p as TaskCancelledPayload;
       if (!payload.chat_session_id) return;
       chatWsLogger.info("task:cancelled (global, chat)", {
@@ -1729,6 +1742,8 @@ export function useRealtimeSync(
     });
 
     const unsubTaskCompleted = ws.on("task:completed", (p) => {
+      const relationWsId = getCurrentWsId();
+      if (relationWsId) void qc.invalidateQueries({ queryKey: issueRelationKeys.all(relationWsId) });
       const payload = p as TaskCompletedPayload;
       if (!payload.chat_session_id) return; // issue tasks handled elsewhere
       chatWsLogger.info("task:completed (global, chat)", {
@@ -1744,6 +1759,8 @@ export function useRealtimeSync(
     });
 
     const unsubTaskFailed = ws.on("task:failed", (p) => {
+      const relationWsId = getCurrentWsId();
+      if (relationWsId) void qc.invalidateQueries({ queryKey: issueRelationKeys.all(relationWsId) });
       const payload = p as TaskFailedPayload;
       if (!payload.chat_session_id) return;
       chatWsLogger.warn("task:failed (global, chat)", {
@@ -1822,6 +1839,7 @@ export function useRealtimeSync(
     return () => {
       unsubAny();
       unsubIssueUpdated();
+      unsubIssueRelationsChanged();
       unsubIssueCreated();
       unsubIssueDeleted();
       unsubIssueAttachmentsChanged();

@@ -12,6 +12,7 @@ import type { Label } from "./label";
 export type WSEventType =
   | "issue:created"
   | "issue:updated"
+  | "issue_relations:changed"
   | "issue_attachments:changed"
   | "issue:deleted"
   | "comment:created"
@@ -576,6 +577,7 @@ export interface ChatSessionCreatedPayload {
 export interface WSEventPayloadMap {
   "issue:created": IssueCreatedPayload;
   "issue:updated": IssueUpdatedPayload;
+  "issue_relations:changed": { issue_ids: string[] };
   "issue:deleted": IssueDeletedPayload;
   "issue_attachments:changed": IssueAttachmentsChangedPayload;
   "issue_labels:changed": IssueLabelsChangedPayload;
