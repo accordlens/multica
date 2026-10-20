@@ -68,9 +68,9 @@ INSERT INTO attachment VALUES('00000000-0000-4000-8000-000000000008','00000000-0
 				t.Fatal(err)
 			}
 			for i := 0; i < 2; i++ {
-				applyMigrationFile(t, ctx, conn.Conn(), "565_team_chat_expand.up.sql")
+				applyMigrationFile(t, ctx, conn.Conn(), "585_team_chat_expand.up.sql")
 			}
-			for _, file := range []string{"566_team_chat_participant_identity.up.sql", "567_team_chat_participant_user.up.sql", "568_team_chat_message_sequence.up.sql", "569_team_chat_message_thread.up.sql", "570_team_chat_message_idempotency.up.sql", "571_team_chat_read_state.up.sql", "572_team_chat_thread_state.up.sql", "573_team_chat_event_sequence.up.sql", "574_team_chat_event_pending.up.sql", "575_team_chat_draft.up.sql", "576_team_chat_channel_name.up.sql", "577_team_chat_general.up.sql", "578_team_chat_dm_key.up.sql", "579_team_chat_protected_objects.up.sql", "580_team_chat_protected_objects_index.up.sql", "581_team_chat_protected_tasks.up.sql", "582_team_chat_protected_tasks_index.up.sql"} {
+			for _, file := range []string{"586_team_chat_participant_identity.up.sql", "587_team_chat_participant_user.up.sql", "588_team_chat_message_sequence.up.sql", "589_team_chat_message_thread.up.sql", "590_team_chat_message_idempotency.up.sql", "591_team_chat_read_state.up.sql", "592_team_chat_thread_state.up.sql", "593_team_chat_event_sequence.up.sql", "594_team_chat_event_pending.up.sql", "595_team_chat_draft.up.sql", "596_team_chat_channel_name.up.sql", "597_team_chat_general.up.sql", "598_team_chat_dm_key.up.sql", "599_team_chat_protected_objects.up.sql", "600_team_chat_protected_objects_index.up.sql", "601_team_chat_protected_tasks.up.sql", "602_team_chat_protected_tasks_index.up.sql"} {
 				for i := 0; i < 2; i++ {
 					applyMigrationFile(t, ctx, conn.Conn(), file)
 				}
@@ -110,7 +110,7 @@ INSERT INTO attachment VALUES('00000000-0000-4000-8000-000000000008','00000000-0
 				if _, err = conn.Exec(ctx, `UPDATE chat_protected_task SET is_private=true WHERE task_id IN ('00000000-0000-4000-8000-000000000012','00000000-0000-4000-8000-000000000013'); UPDATE agent_task_queue SET chat_session_id=NULL,context='{"type":"quick_create"}' WHERE id='00000000-0000-4000-8000-000000000004'`); err != nil {
 					t.Fatal(err)
 				}
-				applyMigrationFile(t, ctx, conn.Conn(), "581_team_chat_protected_tasks.up.sql")
+				applyMigrationFile(t, ctx, conn.Conn(), "601_team_chat_protected_tasks.up.sql")
 				if err = conn.QueryRow(ctx, `SELECT count(*) FROM chat_protected_task WHERE task_id IN ('00000000-0000-4000-8000-000000000012','00000000-0000-4000-8000-000000000013') AND NOT is_private`).Scan(&knownPublic); err != nil || knownPublic != 2 {
 					t.Fatalf("preview repair failed: %d %v", knownPublic, err)
 				}
@@ -122,7 +122,7 @@ INSERT INTO attachment VALUES('00000000-0000-4000-8000-000000000008','00000000-0
 			if _, err = conn.Exec(ctx, `INSERT INTO agent_task_queue(id,agent_id) VALUES($1,$1)`, newPublicTask); err != nil {
 				t.Fatal(err)
 			}
-			applyMigrationFile(t, ctx, conn.Conn(), "581_team_chat_protected_tasks.up.sql")
+			applyMigrationFile(t, ctx, conn.Conn(), "601_team_chat_protected_tasks.up.sql")
 			var newPublic bool
 			if err = conn.QueryRow(ctx, `SELECT NOT is_private FROM chat_protected_task WHERE task_id=$1`, newPublicTask).Scan(&newPublic); err != nil || !newPublic {
 				t.Fatalf("retry quarantined new ordinary task: public=%v error=%v", newPublic, err)

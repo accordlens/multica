@@ -1,8 +1,14 @@
 # Team chat C2 upgrade and recovery
 
 This is an expansion of existing chat_session/chat_message records, protocol 2,
-through schema 582. Team creation/send stays disabled in capabilities until C3/C4
+through schema 602. Team creation/send stays disabled in capabilities until C3/C4
 and the C2 acceptance gates are accepted. Legacy endpoints return agent_dm only.
+
+Pinned sprint base: upstream `47120a4131564175da044d63d897ed9b5d76979a` through schema584.
+C2 migrations were moved from the unmerged preview565–582 to585–602;603 stays
+reserved and passkey work starts at604 under the ACCO-128 integration contract.
+Existing preview version records/data are retained;601 repairs known ordinary
+task classifications without clearing a retained private conversation scope.
 
 ## Backup and upgrade
 
@@ -12,10 +18,10 @@ and the C2 acceptance gates are accepted. Legacy endpoints return agent_dm only.
    backup at the same boundary. Validate both in an isolated restoration; record
    session/message/task/input/attachment/read counts and their IDs before upgrade.
 3. Upgrade the API/migrator together. Run `go run ./cmd/migrate up` from server.
-   The runner serializes migration runners. Expansion/backfill 565 is transactional;
-   566–578, 580 and 582 build one index CONCURRENTLY per file. The runner cleans an
-   INVALID interrupted index before retry. 579 preserves protected-object tombstones.
-4. Verify 582 is recorded and all new indexes have indisvalid/indisready=true. Check
+   The runner serializes migration runners. Expansion/backfill 585 is transactional;
+   586–598, 600 and 602 build one index CONCURRENTLY per file. The runner cleans an
+   INVALID interrupted index before retry. 599 preserves protected-object tombstones.
+4. Verify 602 is recorded and all new indexes have indisvalid/indisready=true. Check
    authors (human user.id; historical assistant task.agent_id), deterministic
    message_seq and legacy last_read_at/read counts against the backup. IDs,
    task input ownership, existing attachment bindings and stored content stay intact.
@@ -43,7 +49,7 @@ Do not remove protected-object tombstones while any old object URL may survive
 failed storage GC. Deletion prunes participants/reads/threads/events/drafts in the
 same transaction; tombstones are intentionally retained as security records.
 Task privacy records also survive the historical FK clearing chat_session_id.
-Migration 581 conservatively quarantines pre-existing tasks without conversation,
+Migration 601 conservatively quarantines pre-existing tasks without conversation,
 issue, autopilot-run or quick-create ownership evidence: their source may be a previously deleted private
 chat. Their rows/input/result remain intact, but human-facing history stays
 hidden until an operator reviews/classifies the origin from backup evidence.
