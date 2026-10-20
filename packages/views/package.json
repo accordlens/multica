@@ -74,6 +74,7 @@
     "@floating-ui/dom": "^1.7.6",
     "@multica/core": "workspace:*",
     "@multica/ui": "workspace:*",
+    "@simplewebauthn/browser": "^13.3.0",
     "@tanstack/react-virtual": "catalog:",
     "@tiptap/core": "3.31.3",
     "@tiptap/extension-code-block-lowlight": "3.31.3",

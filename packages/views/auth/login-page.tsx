@@ -20,10 +20,13 @@ import {
   InputOTPSlot,
 } from "@multica/ui/components/ui/input-otp";
 import { useAuthStore } from "@multica/core/auth";
+import { useConfigStore } from "@multica/core/config";
+import type { LoginResponse } from "@multica/core/api";
 import { workspaceKeys } from "@multica/core/workspace/queries";
 import { api } from "@multica/core/api";
 import type { User } from "@multica/core/types";
 import { useT } from "../i18n";
+import { PasskeySignIn } from "./passkey-sign-in";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -62,6 +65,8 @@ interface LoginPageProps {
    *  app?" prompt; desktop omits it (a download prompt inside the app
    *  would be absurd). */
   extra?: ReactNode;
+  /** One-time passkey enrollment token (`/login?enroll=…`, ACCO-55). */
+  enrollToken?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +111,7 @@ export function LoginPage({
   onTokenObtained,
   onGoogleLogin,
   extra,
+  enrollToken,
 }: LoginPageProps) {
   const { t } = useT("auth");
   const qc = useQueryClient();
@@ -123,6 +129,7 @@ export function LoginPage({
   // because the user asked to leave. Without saying so, landing here reads as
   // the app having lost their work for no reason.
   const sessionExpired = useAuthStore((state) => state.expired);
+  const passkeyOnly = useConfigStore((state) => state.passkeyOnly);
 
   // Check for existing session when CLI callback is present.
   // Prioritises cookie auth (= current browser session) to avoid authorising
@@ -238,6 +245,24 @@ export function LoginPage({
     [email, onSuccess, cliCallback, onTokenObtained, qc, t],
   );
 
+  // Same post-login hand-off as handleVerify, for a passkey session.
+  const handlePasskeySignedIn = useCallback(
+    async ({ token }: LoginResponse) => {
+      if (cliCallback) {
+        localStorage.setItem("multica_token", token);
+        api.setToken(token);
+        onTokenObtained?.();
+        redirectToCliCallback(cliCallback.url, token, cliCallback.state);
+        return;
+      }
+      const wsList = await api.listWorkspaces();
+      qc.setQueryData(workspaceKeys.list(), wsList);
+      onTokenObtained?.();
+      onSuccess();
+    },
+    [cliCallback, onTokenObtained, onSuccess, qc],
+  );
+
   const handleResend = async () => {
     if (cooldown > 0) return;
     setError("");
@@ -336,6 +361,50 @@ export function LoginPage({
               {t(($) => $.cli.different_account)}
             </Button>
           </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Passkey-only deployments: no email, code or Google step at all
+  // -------------------------------------------------------------------------
+
+  if (passkeyOnly || enrollToken) {
+    return (
+      <div className="flex min-h-svh items-center justify-center">
+        <Card className="w-full max-w-sm">
+          <CardHeader className="text-center">
+            {logo && <div className="mx-auto mb-4">{logo}</div>}
+            <CardTitle className="text-display-sm">
+              {enrollToken
+                ? t(($) => $.passkey.enroll_title)
+                : t(($) => $.signin.title)}
+            </CardTitle>
+            {enrollToken && (
+              <CardDescription>
+                {t(($) => $.passkey.enroll_description)}
+              </CardDescription>
+            )}
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {sessionExpired && (
+              <Alert>
+                <AlertDescription>
+                  {t(($) => $.errors.session_expired)}
+                </AlertDescription>
+              </Alert>
+            )}
+            <PasskeySignIn
+              enrollToken={enrollToken}
+              onSignedIn={handlePasskeySignedIn}
+            />
+          </CardContent>
+          {extra && (
+            <CardFooter>
+              <div className="w-full text-center">{extra}</div>
+            </CardFooter>
+          )}
         </Card>
       </div>
     );

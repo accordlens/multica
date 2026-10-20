@@ -1389,7 +1389,10 @@
     "invitation_meta": "Envoyée le {{sent}} · Expire le {{expires}}",
     "revoke_invitation_aria": "Révoquer l'invitation de {{email}}",
     "seats_used": "{{used}} sièges utilisés sur {{purchased}}",
-    "manage_seats": "Gérer les sièges"
+    "manage_seats": "Gérer les sièges",
+    "copy_passkey_link_aria": "Copier le lien d'inscription pour {{email}}",
+    "toast_passkey_link_copied": "Lien d'inscription copié. Il fonctionne une seule fois, pendant 24 heures.",
+    "toast_passkey_link_failed": "Impossible de créer un lien d'inscription"
   },
   "integrations": {
     "status_connected": "Connecté",
@@ -1436,5 +1439,22 @@
     "mcp": "Ajoutés par les administrateurs, partagés dans l'espace de travail puis attribués agent par agent.",
     "apps": "Autorisées avec votre propre compte via Composio et activées sur les agents qui vous appartiennent.",
     "plugins": "Paquets installés pouvant ajouter des outils, des hooks planifiés et du stockage, chacun avec ses propres autorisations."
+  },
+  "passkeys": {
+    "title": "Clés d'accès",
+    "description": "Gardez une clé d'accès de secours sur un second appareil pour ne pas perdre l'accès si l'un d'eux disparaît.",
+    "add": "Ajouter une clé d'accès",
+    "adding": "En attente de votre clé d'accès…",
+    "created": "Ajoutée le {{date}}",
+    "last_used": "Dernière utilisation le {{date}}",
+    "never_used": "Pas encore utilisée",
+    "remove_aria": "Supprimer la clé d'accès {{name}}",
+    "only_one_hint": "Ajoutez une clé d'accès de secours avant de supprimer celle-ci.",
+    "reauth_required": "Par sécurité, déconnectez-vous puis reconnectez-vous avec une clé d'accès, et réessayez dans les 10 minutes.",
+    "remove_title": "Supprimer la clé d'accès ?",
+    "remove_description": "{{name}} ne pourra plus servir à se connecter. Les appareils déjà connectés le restent jusqu'à la déconnexion ou l'expiration de la session.",
+    "toast_added": "Clé d'accès ajoutée",
+    "toast_removed": "Clé d'accès supprimée",
+    "toast_failed": "Impossible de mettre à jour vos clés d'accès"
   }
 }

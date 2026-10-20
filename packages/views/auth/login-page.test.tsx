@@ -82,6 +82,7 @@ vi.mock("@multica/core/types", () => ({}));
 // ---------------------------------------------------------------------------
 
 import { LoginPage, validateCliCallback } from "./login-page";
+import { configStore } from "@multica/core/config";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -132,6 +133,29 @@ describe("LoginPage", () => {
   it("stays quiet on an ordinary visit to the login page", () => {
     renderWithI18n(<LoginPage onSuccess={onSuccess} />);
     expect(screen.queryByText(/your session expired/i)).not.toBeInTheDocument();
+  });
+
+  it("offers only a passkey on a passkey-only deployment", () => {
+    configStore.setState({ passkeyOnly: true });
+    try {
+      renderWithI18n(
+        <LoginPage
+          onSuccess={onSuccess}
+          google={{ clientId: "g", redirectUri: "https://x/auth/callback" }}
+        />,
+      );
+      expect(screen.getByRole("button", { name: "Sign in with passkey" })).toBeInTheDocument();
+      expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/google/i)).not.toBeInTheDocument();
+    } finally {
+      configStore.setState({ passkeyOnly: false });
+    }
+  });
+
+  it("turns an enrollment link into a create-passkey screen", () => {
+    renderWithI18n(<LoginPage onSuccess={onSuccess} enrollToken="tok" />);
+    expect(screen.getByText("Create your passkey")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create passkey" })).toBeInTheDocument();
   });
 
   it("renders email form with 'Sign in to Multica' title", () => {

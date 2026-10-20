@@ -248,6 +248,16 @@ import { createRequestId, createSafeId } from "../utils";
 import { getCurrentSlug } from "../platform/workspace-storage";
 import { parseWithFallback } from "./schema";
 import {
+  EMPTY_PASSKEY_CEREMONY,
+  PasskeyCeremonySchema,
+  PasskeyLinkSchema,
+  PasskeyListSchema,
+  PasskeySchema,
+  type Passkey,
+  type PasskeyCeremony,
+  type PasskeyLink,
+} from "./passkey-schemas";
+import {
   RuntimeProfileSchema,
   RuntimeProfileListSchema,
   AgentTaskListSchema,
@@ -993,6 +1003,70 @@ export class ApiClient {
 
   async logout(): Promise<void> {
     await this.fetch("/auth/logout", { method: "POST" });
+  }
+
+  // Passkey-only sign-in (ACCO-55). Each begin returns options for the
+  // browser's WebAuthn call; the matching finish sends its result back.
+
+  private async passkeyCeremony(path: string, body: unknown): Promise<PasskeyCeremony> {
+    const raw = await this.fetch<unknown>(path, { method: "POST", body: JSON.stringify(body) });
+    const parsed = parseWithFallback(raw, PasskeyCeremonySchema, EMPTY_PASSKEY_CEREMONY, { endpoint: `POST ${path}` });
+    if (!parsed.challenge_id) throw new Error(`Malformed response from POST ${path}`);
+    return parsed;
+  }
+
+  private async passkeyLogin(path: string, body: unknown): Promise<LoginResponse> {
+    const raw = await this.fetch<{ token?: unknown; user?: unknown }>(path, { method: "POST", body: JSON.stringify(body) });
+    const user = parseWithFallback(raw?.user, UserSchema, EMPTY_USER, { endpoint: `POST ${path}` });
+    if (typeof raw?.token !== "string" || !user.id) throw new Error(`Malformed response from POST ${path}`);
+    return { token: raw.token, user };
+  }
+
+  async passkeyLoginBegin(): Promise<PasskeyCeremony> {
+    return this.passkeyCeremony("/auth/passkey/login/begin", {});
+  }
+
+  async passkeyLoginFinish(challengeId: string, credential: unknown): Promise<LoginResponse> {
+    return this.passkeyLogin("/auth/passkey/login/finish", { challenge_id: challengeId, credential });
+  }
+
+  async passkeyEnrollBegin(token: string): Promise<PasskeyCeremony> {
+    return this.passkeyCeremony("/auth/passkey/enroll/begin", { token });
+  }
+
+  async passkeyEnrollFinish(challengeId: string, credential: unknown, name: string): Promise<LoginResponse> {
+    return this.passkeyLogin("/auth/passkey/enroll/finish", { challenge_id: challengeId, credential, name });
+  }
+
+  async listMyPasskeys(): Promise<Passkey[]> {
+    const raw = await this.fetch<unknown>("/api/me/passkeys");
+    return parseWithFallback(raw, PasskeyListSchema, [], { endpoint: "GET /api/me/passkeys" });
+  }
+
+  async beginAddPasskey(): Promise<PasskeyCeremony> {
+    return this.passkeyCeremony("/api/me/passkeys/begin", {});
+  }
+
+  async finishAddPasskey(challengeId: string, credential: unknown, name: string): Promise<Passkey> {
+    const raw = await this.fetch<unknown>("/api/me/passkeys/finish", {
+      method: "POST",
+      body: JSON.stringify({ challenge_id: challengeId, credential, name }),
+    });
+    const parsed = parseWithFallback<Passkey | null>(raw, PasskeySchema, null, { endpoint: "POST /api/me/passkeys/finish" });
+    if (!parsed) throw new Error("Malformed response from POST /api/me/passkeys/finish");
+    return parsed;
+  }
+
+  async deleteMyPasskey(passkeyId: string): Promise<void> {
+    await this.fetch(`/api/me/passkeys/${passkeyId}`, { method: "DELETE" });
+  }
+
+  async createInvitationPasskeyLink(workspaceId: string, invitationId: string): Promise<PasskeyLink> {
+    const path = `/api/workspaces/${workspaceId}/invitations/${invitationId}/passkey-link`;
+    const raw = await this.fetch<unknown>(path, { method: "POST" });
+    const parsed = parseWithFallback<PasskeyLink | null>(raw, PasskeyLinkSchema, null, { endpoint: "POST passkey-link" });
+    if (!parsed?.url) throw new Error("Malformed response from POST passkey-link");
+    return parsed;
   }
 
   async issueCliToken(): Promise<{ token: string }> {
