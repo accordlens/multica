@@ -34,6 +34,7 @@ Use `Makefile`, workspace `package.json` files, and `pnpm-workspace.yaml` for cu
 - Worktrees share PostgreSQL but have isolated databases/ports. Use the environment scripts and `.env.worktree`; do not copy the main checkout's `.env` or manually create a database through an assumed PostgreSQL instance.
 - Regenerate sqlc with `make sqlc` after SQL changes.
 - Run the narrowest useful checks while iterating, then broaden when risk warrants it. Report what actually ran and any skipped checks.
+- Before pushing, commit all changes and run `pnpm local:ci`. The pre-push hook requires a complete passing result for the exact clean HEAD; it reuses the result instead of rerunning tests. Publish with `pnpm local:ci:publish <PR>` after pushing, or use `pnpm push` for an existing PR. See [docs/local-ci.md](docs/local-ci.md) for prerequisites, gates and limits. `pnpm install` installs hooks for this checkout; never bypass the gate or represent partial checks as PASS.
 
 Run these from the repository root:
 
