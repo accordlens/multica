@@ -3524,6 +3524,16 @@ func (s *TaskService) claimTask(ctx context.Context, agentID, runtimeID pgtype.U
 
 	err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		t0 := time.Now()
+		// Graph admission precedes row locks. Graph writers may insert relation
+		// rows referencing issues, while workspace teardown locks owners first.
+		// An advisory lock avoids reversing that existing owner-row order.
+		identity, err := qtx.GetAgent(ctx, agentID)
+		if err != nil {
+			return fmt.Errorf("agent not found: %w", err)
+		}
+		if err := qtx.LockIssueDependencyGraphForClaim(ctx, identity.WorkspaceID); err != nil {
+			return fmt.Errorf("lock dependency graph for claim: %w", err)
+		}
 		agent, err := qtx.GetAgentForClaimUpdate(ctx, agentID)
 		getAgentMs = time.Since(t0).Milliseconds()
 		if err != nil {

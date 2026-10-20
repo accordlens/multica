@@ -946,10 +946,15 @@ type IssueChildEvent struct {
 }
 
 type IssueDependency struct {
-	ID               pgtype.UUID `json:"id"`
-	IssueID          pgtype.UUID `json:"issue_id"`
-	DependsOnIssueID pgtype.UUID `json:"depends_on_issue_id"`
-	Type             string      `json:"type"`
+	ID               pgtype.UUID        `json:"id"`
+	IssueID          pgtype.UUID        `json:"issue_id"`
+	DependsOnIssueID pgtype.UUID        `json:"depends_on_issue_id"`
+	Type             string             `json:"type"`
+	Condition        []byte             `json:"condition"`
+	TargetStep       string             `json:"target_step"`
+	Provenance       []byte             `json:"provenance"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	RemovedAt        pgtype.Timestamptz `json:"removed_at"`
 }
 
 type IssueLabel struct {

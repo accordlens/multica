@@ -46,6 +46,15 @@ type workflowHandoff struct {
 // move the issue from the step it works on. It returns the handoff that write
 // triggers, or nil.
 func (h *Handler) applyIssueWorkflow(ctx context.Context, prev db.Issue, params *db.UpdateIssueParams, statusExplicit, assigneeTouched, enterOnMove bool, run *db.AgentTaskQueue) (*workflowHandoff, error) {
+	if params.Status.Valid && params.Status.String != prev.Status {
+		allowed, err := h.Queries.IssueDependencyTransitionAllowed(ctx, db.IssueDependencyTransitionAllowedParams{IssueID: prev.ID, Previous: prev.Status, Next: params.Status.String})
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			return nil, &issueworkflow.DependenciesUnmetError{}
+		}
+	}
 	def, project, err := issueworkflow.ForProject(ctx, h.Queries, prev.WorkspaceID, params.ProjectID)
 	if err != nil || def == nil {
 		return nil, err
@@ -120,6 +129,11 @@ func workflowHandoffPayload(issue db.Issue, hand *workflowHandoff, note string, 
 // writeIssueWorkflowError answers a workflow rejection. It reports false when
 // err is not one, so the caller can fall through to its generic 500.
 func writeIssueWorkflowError(w http.ResponseWriter, err error) bool {
+	var unmet *issueworkflow.DependenciesUnmetError
+	if errors.As(err, &unmet) {
+		writeErrorCode(w, http.StatusConflict, "dependencies_unmet", unmet.Error())
+		return true
+	}
 	var notIn *issueworkflow.NotInWorkflowError
 	if errors.As(err, &notIn) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{
