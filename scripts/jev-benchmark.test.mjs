@@ -81,3 +81,28 @@ test("an uncertain paid attempt keeps evidence and stops the rest of the batch",
   assert(readdirSync(output).includes("one.uncertain.json"));
   assert(!readFileSync(join(output, "one.uncertain.json"), "utf8").includes("test-secret"));
 });
+
+for (const mode of ["oversized body", "body read failure"]) {
+  test(`a rejected response retains received evidence after ${mode}`, async (t) => {
+    const parent = mkdtempSync(join(tmpdir(), "jev-rejected-"));
+    t.after(() => rmSync(parent, { recursive: true, force: true }));
+    const output = join(parent, "run");
+    const raw = "x".repeat(65537);
+    let calls = 0;
+    await assert.rejects(runBatch([{ id: "one", body }, { id: "two", body }], output, "test-secret", async () => {
+      calls++;
+      return { status: 502, text: async () => {
+        if (mode === "body read failure") throw new Error("body read failed test-secret");
+        return raw;
+      } };
+    }));
+    const bytes = readFileSync(join(output, "one.uncertain.json"), "utf8");
+    const receipt = JSON.parse(bytes);
+    assert.equal(receipt.status, 502);
+    assert.equal(receipt.raw_response, mode === "oversized body" ? raw : undefined);
+    assert.match(receipt.error, mode === "oversized body" ? /response too large/ : /body read failed/);
+    assert(!bytes.includes("test-secret"));
+    assert.equal(calls, 1);
+    assert.deepEqual(readdirSync(output).sort(), ["one.started.json", "one.uncertain.json"]);
+  });
+}

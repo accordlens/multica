@@ -165,9 +165,10 @@ export async function runBatch(jobs, directory, apiKey, transport = fetch) {
     let receipt;
     try {
       const response = await transport(ENDPOINT, { method: "POST", redirect: "error", signal: AbortSignal.timeout(30000), headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(job.body) });
+      receipt = { ...operation, status: response.status };
       const raw = await response.text();
-      assert(Buffer.byteLength(raw) <= 65536, "response too large");
       receipt = { ...operation, status: response.status, latency_ms: performance.now() - start, client_cpu_microseconds: process.cpuUsage(cpu), client_max_rss_kib: process.resourceUsage().maxRSS, raw_response: raw };
+      assert(Buffer.byteLength(raw) <= 65536, "response too large");
       receipt.response = JSON.parse(raw);
       assert.equal(response.status, 200, "API request failed; do not retry automatically");
       validateResponse(job.body, receipt.response);
