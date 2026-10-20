@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { checkMessage, compareFixtures, contextErrors, fixtureMessages, loadContracts, pilot, preview, receipt, snapshot } from "./role-contracts.mjs";
 
@@ -242,6 +243,8 @@ test("run receipt binds returned platform identity and exact report/profile byte
   const artifact = JSON.stringify({ activation: false, profiles: { dev: preview("dev", bundle), qa: preview("qa", bundle) } });
   const output = receipt([run], report, artifact, bundle);
   assert.equal(output.task_id, run.id);
+  assert.ok(output.metadata_key.length <= 64);
+  assert.ok(output.metadata_key.endsWith(context.source_revision.slice(0, 8)));
   assert.equal(output.effective_runtime_configuration_attested, false);
   assert.equal(output.independent_qa_task_id, null);
   assert.equal(output.report.attachment_id, null);
@@ -263,7 +266,7 @@ test("CLI failure returns critical evidence, a failing exit code and no modified
   const raw = JSON.stringify(m);
   writeFileSync(path, raw);
   writeFileSync(expected, JSON.stringify(context));
-  const result = spawnSync(process.execPath, [new URL("./role-contracts.mjs", import.meta.url).pathname, "check", path, "--context", expected], { encoding: "utf8" });
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL("./role-contracts.mjs", import.meta.url)), "check", path, "--context", expected], { encoding: "utf8" });
   assert.equal(result.status, 1, result.stderr);
   const output = JSON.parse(result.stdout);
   assert.deepEqual(output.critical_delivery.prose, m.prose);

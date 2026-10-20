@@ -312,7 +312,9 @@ export function receipt(runs, reportBytes, artifactBytes, bundle = loadContracts
   if (!isDeepStrictEqual(artifact, { activation: false, profiles: { dev: preview("dev", bundle), qa: preview("qa", bundle) } })) {
     throw new Error("Receipt needs the exact inactive Dev/QA previews");
   }
-  return { schema_version: 1, task_id: run.id, issue_id: run.issue_id,
+  return { schema_version: 1,
+    metadata_key: `role_contracts_v1.${run.id}.${report.context.source_revision.slice(0, 8)}`,
+    task_id: run.id, issue_id: run.issue_id,
     agent_id: run.agent_id, runtime_id: run.runtime_id, source_revision: report.context.source_revision,
     mode: "task_scoped_preview_and_synthetic_pilot",
     effective_runtime_configuration_attested: false,

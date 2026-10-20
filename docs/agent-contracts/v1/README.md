@@ -165,7 +165,9 @@ Mapping audited against pinned upstream
   durable linking; ACCO-94 owns authoritative script execution evidence.
 
 For this opt-in pilot, store a compact receipt under issue metadata key
-`role_contracts_v1.<task-id>`. The existing metadata surface accepts a **string**
+`role_contracts_v1.<task-id>.<source-sha-prefix8>` (returned as `metadata_key`).
+The full source SHA stays inside the receipt; a different value at the same
+key is a conflict to resolve, not an overwrite. The existing metadata surface accepts a **string**
 containing JSON, not a nested object. It has an 8KB aggregate limit. Keep full
 reports in attachments, do not evict other metadata or silently overwrite a
 different receipt, and retain prior run receipts. This is an index of submitted
