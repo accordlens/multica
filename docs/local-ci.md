@@ -31,8 +31,9 @@ PostgreSQL and Redis containers on random loopback ports, and executes:
 - Frontend typecheck, lint, unit tests and builds, including docs and desktop.
 - Mobile typecheck, lint and unit tests, separately from root frontend tasks.
 - SQLC regeneration with a drift check; Go race build and tagged integration vet.
-- All default Go tests with race detection and fresh results, serial within each
-  package to keep subprocess deadlines reliable on local machines.
+- All default Go tests with race detection and fresh results in a local Linux
+  container with pinned Go/Node, serial within each package. Its isolated process
+  namespace avoids host process-scan timing failures on busy developer machines.
 - Go vulnerability scanning against the current vulnerability database.
 - Playwright against app processes and synthetic data owned by this run.
 - Linux amd64 self-host images, Windows CLI export, HTTP smoke, backup/recovery.
@@ -45,6 +46,9 @@ workflows remain available for targeted diagnostics. The guarded upstream
 release workflow still cannot publish from this fork.
 
 The runner removes only its own processes, containers and temporary checkout.
+Linux Go module/build cache volumes remain for subsequent runs. Next's generated
+route-type shims are restored after production builds in the disposable clone;
+the developer's checkout is never rewritten.
 Reports and individual logs remain in the checkout's Git directory under
 `local-ci/`. The pre-push hook only reads the latest report: all gates must have
 passed for the exact commit being pushed, with no staged, unstaged or untracked

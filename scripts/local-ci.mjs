@@ -37,8 +37,9 @@ const command = (cwd, tool, args, options = {}) => (execFileSync(tool, args, {
 const git = (cwd, ...args) => command(cwd, "git", args);
 const head = (cwd) => git(cwd, "rev-parse", "HEAD");
 export function requireClean(cwd, sha = head(cwd)) {
-  if (head(cwd) !== sha || git(cwd, "status", "--porcelain", "--untracked-files=all")) {
-    throw new Error("Checkout changed. Commit or stash all changes, then run pnpm local:ci again.");
+  const changes = git(cwd, "status", "--porcelain", "--untracked-files=all");
+  if (head(cwd) !== sha || changes) {
+    throw new Error(`Checkout changed. Commit or stash all changes, then run pnpm local:ci again.\n${changes}`);
   }
 }
 function reportPath(cwd) {
@@ -169,6 +170,8 @@ export async function run(cwd) {
   env.TMPDIR = join(workspace, "tmp");
   mkdirSync(env.TMPDIR);
   const containers = [];
+  let network;
+  const goContainerFile = join(directory, "go-container.cid");
   const docker = (...args) => command(cwd, "docker", args, { env });
   const setupLog = join(directory, "setup.log");
   interrupted = false;
@@ -184,12 +187,13 @@ export async function run(cwd) {
     git(cwd, "clone", "--no-hardlinks", "--no-checkout", cwd, source);
     git(source, "checkout", "--detach", sha);
     git(source, "remote", "set-url", "origin", origin);
+    network = docker("network", "create", `multica-local-ci-${process.pid}-${Date.now()}`);
     for (const [kind, image, port, extra] of [
       ["pg", "pgvector/pgvector:pg17", "5432", ["-e", "POSTGRES_USER=multica", "-e", "POSTGRES_PASSWORD=local-ci", "-e", "POSTGRES_DB=multica_ci"]],
       ["redis", "redis:7-alpine", "6379", []],
     ]) {
       const name = `multica-local-ci-${process.pid}-${Date.now()}-${kind}`;
-      const id = docker("run", "--rm", "--detach", "--name", name, "-p", `127.0.0.1::${port}`, ...extra, image);
+      const id = docker("run", "--rm", "--detach", "--name", name, "--network", network, "--network-alias", kind, "-p", `127.0.0.1::${port}`, ...extra, image);
       containers.push(id);
       const hostPort = docker("port", name, `${port}/tcp`).split(":").at(-1);
       if (kind === "pg") {
@@ -201,7 +205,7 @@ export async function run(cwd) {
       }
     }
     env.PORT = String(await freePort());
-    env.FRONTEND_PORT = String(await freePort());
+    do { env.FRONTEND_PORT = String(await freePort()); } while (env.FRONTEND_PORT === env.PORT);
     env.FRONTEND_ORIGIN = `http://localhost:${env.FRONTEND_PORT}`;
     Object.assign(env, {
       NEXT_PUBLIC_API_URL: `http://localhost:${env.PORT}`, NEXT_PUBLIC_WS_URL: `ws://localhost:${env.PORT}/ws`,
@@ -220,8 +224,28 @@ export async function run(cwd) {
       console.log(`RUN ${name}`);
       const logfile = join(directory, `${name}.log`);
       const gateEnv = ["scripts", "selfhost"].includes(name) ? { ...testEnvironment(), TMPDIR: env.TMPDIR } : env;
-      try { entry.exitCode = name === "e2e" ? await e2e(source, gateEnv, logfile) : await execute(source, argv, gateEnv, logfile); }
+      try {
+        if (name === "backend-test") {
+          const image = "multica-local-ci-go:1.26.9";
+          entry.exitCode = await execute(source, ["docker", "build", "--file", "Dockerfile.local-ci-go", "--tag", image, "."], gateEnv, logfile);
+          if (entry.exitCode === 0) {
+            report.toolchain.goTestImage = docker("image", "inspect", "--format", "{{.Id}}", image);
+            entry.exitCode = await execute(source, ["docker", "run", "--cidfile", goContainerFile, "--network", network,
+              "--volume", `${source}:/src`, "--volume", "multica-local-ci-gomod:/go/pkg/mod",
+              "--volume", "multica-local-ci-gobuild:/root/.cache/go-build",
+              "--env", "DATABASE_URL=postgres://multica:local-ci@pg:5432/multica_ci?sslmode=disable",
+              "--env", "REDIS_TEST_URL=redis://redis:6379/1", "--env", "GOMAXPROCS=4", image, ...argv], gateEnv, logfile);
+          }
+        } else entry.exitCode = name === "e2e" ? await e2e(source, gateEnv, logfile) : await execute(source, argv, gateEnv, logfile);
+      }
       catch (error) { entry.exitCode = 1; writeFileSync(logfile, `${error.message}\n`, { flag: "a" }); }
+      if (name === "frontend-build" && entry.exitCode === 0) {
+        // Next rewrites generated route-type shims during production builds.
+        // Normalize only those shims, only in this disposable checkout.
+        git(source, "restore", "--worktree", "--", "apps/web/next-env.d.ts", "apps/docs/next-env.d.ts");
+      }
+      const changes = git(source, "status", "--porcelain", "--untracked-files=all");
+      if (changes) writeFileSync(logfile, `\nCheckout changes after ${name}:\n${changes}\n`, { flag: "a" });
       entry.state = entry.exitCode === 0 ? "success" : "failure";
       entry.finishedAt = now();
       save();
@@ -235,8 +259,12 @@ export async function run(cwd) {
     report.error = error.message;
     console.error(error.message);
   } finally {
+    if (existsSync(goContainerFile)) containers.push(readFileSync(goContainerFile, "utf8").trim());
     for (const name of containers.reverse()) {
       try { docker("rm", "--force", name); } catch { report.state = "failure"; report.error = "CI container cleanup failed."; }
+    }
+    if (network) {
+      try { docker("network", "rm", network); } catch { report.state = "failure"; report.error = "CI network cleanup failed."; }
     }
     rmSync(workspace, { recursive: true, force: true });
     report.finishedAt = now();

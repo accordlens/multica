@@ -22,6 +22,8 @@ case "${1:-}" in
     make build
     ;;
   backend-test)
+    go version
+    node --version
     (cd server && go run ./cmd/migrate up)
     # Run every package with race detection; serial tests avoid starving the
     # subprocess deadlines on developer machines. Never replay cached results.
