@@ -25,10 +25,11 @@ case "${1:-}" in
     go version
     node --version
     (cd server && go run ./cmd/migrate up)
-    # Run every package with race detection; serial tests avoid starving the
-    # subprocess deadlines on developer machines. Never replay cached results.
+    # Packages share one database, including global media-reconciler sweeps.
+    # Serialize packages as well as tests so fixtures cannot claim each other's
+    # rows or starve subprocess deadlines. Never replay cached results.
     bash scripts/go-test-with-agent-cli-guard.sh -- bash -c \
-      'cd server && go test -race -count=1 -p=4 -parallel=1 ./...'
+      'cd server && go test -race -count=1 -p=1 -parallel=1 ./...'
     ;;
   vulnerabilities) (cd server && go tool govulncheck ./...) ;;
   selfhost)
