@@ -20,7 +20,7 @@ export const gates = [
   ["backend-build", shellGate("backend-build")],
   ["backend-test", shellGate("backend-test")],
   ["vulnerabilities", shellGate("vulnerabilities")],
-  ["e2e", ["pnpm", "exec", "playwright", "test"]],
+  ["e2e", ["pnpm", "exec", "playwright", "test", "--reporter=line"]],
   ["selfhost", shellGate("selfhost")],
 ];
 const marker = "<!-- multica-local-ci -->";
@@ -230,7 +230,7 @@ export async function run(cwd) {
           entry.exitCode = await execute(source, ["docker", "build", "--file", "Dockerfile.local-ci-go", "--tag", image, "."], gateEnv, logfile);
           if (entry.exitCode === 0) {
             report.toolchain.goTestImage = docker("image", "inspect", "--format", "{{.Id}}", image);
-            entry.exitCode = await execute(source, ["docker", "run", "--cidfile", goContainerFile, "--network", network,
+            entry.exitCode = await execute(source, ["docker", "run", "--init", "--cidfile", goContainerFile, "--network", network,
               "--volume", `${source}:/src`, "--volume", "multica-local-ci-gomod:/go/pkg/mod",
               "--volume", "multica-local-ci-gobuild:/tmp/go-build",
               "--env", "DATABASE_URL=postgres://multica:local-ci@pg:5432/multica_ci?sslmode=disable",
