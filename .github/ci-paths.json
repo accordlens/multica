@@ -74,6 +74,7 @@
     ".github/ci-paths.json"
   ],
   "scripts": [
+    "scripts/kb-bench*.mjs",
     "scripts/generate-reserved-slugs.mjs",
     "scripts/selfhost-config.test.sh",
     "scripts/drop-database.sh",

@@ -33,6 +33,7 @@ for (const [name, files, selected] of [
   ["PowerShell installer", ["scripts/install.ps1.test.ps1"], ["installer"]],
   ["cleanup script", ["scripts/drop-database.sh"], ["scripts"]],
   ["performance harness", ["scripts/perf-compare.test.sh"], ["scripts"]],
+  ["knowledge benchmark harness", ["scripts/kb-bench.test.mjs"], ["quality", "scripts"]],
   ["reserved slug source", ["server/internal/handler/reserved_slugs.json"], ["backend", "runtime", "scripts", "selfhost"]],
   ["reserved slug output", ["packages/core/paths/reserved-slugs.ts"], ["frontend", "quality", "scripts", "selfhost"]],
   ["integration key gates", ["server/cmd/server/router.go"], ["backend", "runtime", "scripts", "selfhost"]],
