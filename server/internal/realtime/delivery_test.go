@@ -2,9 +2,45 @@ package realtime
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
+
+type deliveryAuthorizerFunc func(context.Context, string, string, []byte) (bool, error)
+
+func (f deliveryAuthorizerFunc) AuthorizeDelivery(ctx context.Context, user, workspace string, frame []byte) (bool, error) {
+	return f(ctx, user, workspace, frame)
+}
+
+func TestWriteBatchAuthorizesEveryQueuedFrame(t *testing.T) {
+	h := NewHub()
+	h.SetMembershipChecker(&mockMembershipChecker{})
+	conn, peer := membershipSocketPair(t)
+	c := &Client{hub: h, conn: conn, userID: testUserID, workspaceID: testWorkspaceID, send: make(chan []byte, 4)}
+	h.registerClient(c)
+	t.Cleanup(func() { h.removeClient(c); close(h.writeMembership) })
+	calls := 0
+	h.SetDeliveryAuthorizer(deliveryAuthorizerFunc(func(_ context.Context, _, _ string, frame []byte) (bool, error) {
+		calls++
+		return !strings.Contains(string(frame), "blocked"), nil
+	}))
+	c.send <- []byte(`{"type":"test:blocked"}`)
+	c.send <- []byte(`{"type":"test:barrier"}`)
+	if !c.writeBatch([]byte(`{"type":"test:allowed"}`)) {
+		t.Fatal("authorized batch failed")
+	}
+	peer.SetReadDeadline(time.Now().Add(time.Second))
+	for _, expected := range []string{"test:allowed", "test:barrier"} {
+		_, frame, err := peer.ReadMessage()
+		if err != nil || !strings.Contains(string(frame), expected) {
+			t.Fatalf("queued private frame escaped: want=%s got=%s err=%v", expected, frame, err)
+		}
+	}
+	if calls != 3 {
+		t.Fatalf("authorization calls=%d want 3", calls)
+	}
+}
 
 type blockedDeliveryAuthorizer struct{ entered, release chan struct{} }
 

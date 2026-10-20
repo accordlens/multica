@@ -56,7 +56,7 @@ func TestAgentTaskHistoryIndexMigrationAndPagePlans(t *testing.T) {
 	const version = "552_agent_task_history_page_index"
 	const indexName = "idx_agent_task_queue_history_page"
 	options := runOptions{
-		Direction: "up", Files: realMigrationFiles(t, []string{version, "582_team_chat_protected_tasks_index"}, "up"),
+		Direction: "up", Files: realMigrationFiles(t, []string{version, "602_team_chat_protected_tasks_index"}, "up"),
 		SchemaMigrationsTable: schema + ".schema_migrations",
 		AdvisoryLockKey:       int64(rand.Uint64()&0x7fffffffffffffff) | 1,
 		Hooks:                 hooksForDirection("up"),
@@ -81,7 +81,7 @@ func TestAgentTaskHistoryIndexMigrationAndPagePlans(t *testing.T) {
 		t.Logf("page before %s:\n%s", before, plan)
 	}
 	options.Direction = "down"
-	options.Files = realMigrationFiles(t, []string{version, "582_team_chat_protected_tasks_index"}, "down")
+	options.Files = realMigrationFiles(t, []string{version, "602_team_chat_protected_tasks_index"}, "down")
 	options.Hooks = hooksForDirection("down")
 	if err := runMigrations(ctx, pool, options); err != nil {
 		t.Fatal(err)
@@ -89,7 +89,7 @@ func TestAgentTaskHistoryIndexMigrationAndPagePlans(t *testing.T) {
 	assertIndexExists(t, pool, schema, indexName, false)
 	assertMigrationVersionRecorded(t, ctx, pool, schema, version, false)
 	options.Direction = "up"
-	options.Files = realMigrationFiles(t, []string{version, "582_team_chat_protected_tasks_index"}, "up")
+	options.Files = realMigrationFiles(t, []string{version, "602_team_chat_protected_tasks_index"}, "up")
 	options.Hooks = hooksForDirection("up")
 	if err := runMigrations(ctx, pool, options); err != nil {
 		t.Fatal(err)

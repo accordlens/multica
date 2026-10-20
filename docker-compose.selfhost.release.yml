@@ -1,0 +1,17 @@
+# Use with the base self-host file ONLY, never with the development build file.
+# Complete references replace image fields, so no :TAG is appended to a digest.
+# Local releases use immutable Docker image IDs. Registry
+# releases may use repository@sha256:manifest-digest after publication approval.
+services:
+  postgres:
+    image: ${MULTICA_RELEASE_DATABASE_IMAGE:?Select the database from release.env}
+    platform: ${MULTICA_RELEASE_PLATFORM:-linux/amd64}
+    pull_policy: never
+  backend:
+    image: ${MULTICA_RELEASE_BACKEND_IMAGE:?Select the backend from release.env}
+    platform: ${MULTICA_RELEASE_PLATFORM:-linux/amd64}
+    pull_policy: never
+  frontend:
+    image: ${MULTICA_RELEASE_WEB_IMAGE:?Select the web image from release.env}
+    platform: ${MULTICA_RELEASE_PLATFORM:-linux/amd64}
+    pull_policy: never

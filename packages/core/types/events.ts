@@ -80,6 +80,7 @@ export type WSEventType =
   | "property:created"
   | "property:updated"
   | "issue_status:changed"
+  | "issue_workflow:changed"
   | "pin:created"
   | "pin:deleted"
   | "pin:reordered"
@@ -169,6 +170,10 @@ export interface PropertyChangedPayload {
  */
 export interface IssueStatusChangedPayload {
   action?: "created" | "updated" | "archived" | "reordered";
+}
+
+export interface IssueWorkflowChangedPayload {
+  action?: "created" | "updated" | "deleted";
 }
 
 export interface AgentStatusPayload {
@@ -579,6 +584,7 @@ export interface WSEventPayloadMap {
   "property:created": PropertyChangedPayload;
   "property:updated": PropertyChangedPayload;
   "issue_status:changed": IssueStatusChangedPayload;
+  "issue_workflow:changed": IssueWorkflowChangedPayload;
   "issue_reaction:added": IssueReactionAddedPayload;
   "issue_reaction:removed": IssueReactionRemovedPayload;
   "comment:created": CommentCreatedPayload;

@@ -20,6 +20,9 @@ concurrency:
 
 jobs:
   verify:
+    # Fork releases are built locally/verified in CI. Publishing requires a
+    # separately reviewed workflow and explicit registry permission.
+    if: github.repository == 'multica-ai/multica'
     runs-on: ubuntu-latest
     outputs:
       tag_name: ${{ steps.release_meta.outputs.tag_name }}
@@ -54,9 +57,9 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          # Deliberately independent from the minimum patch in server/go.mod:
-          # releases follow the newest 1.26 patch available to setup-go.
-          go-version: "1.26.x"
+          # Keep the security floor even when the setup-go manifest lags;
+          # continue accepting newer patches within Go 1.26.
+          go-version: "~1.26.9"
           check-latest: true
           cache-dependency-path: server/go.sum
 
@@ -98,9 +101,9 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          # Deliberately independent from the minimum patch in server/go.mod:
-          # releases follow the newest 1.26 patch available to setup-go.
-          go-version: "1.26.x"
+          # Keep the security floor even when the setup-go manifest lags;
+          # continue accepting newer patches within Go 1.26.
+          go-version: "~1.26.9"
           check-latest: true
           cache-dependency-path: server/go.sum
 
@@ -424,9 +427,9 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          # Deliberately independent from the minimum patch in server/go.mod:
-          # releases follow the newest 1.26 patch available to setup-go.
-          go-version: "1.26.x"
+          # Keep the security floor even when the setup-go manifest lags;
+          # continue accepting newer patches within Go 1.26.
+          go-version: "~1.26.9"
           check-latest: true
           cache-dependency-path: server/go.sum
 

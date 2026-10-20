@@ -111,7 +111,9 @@ function hasDesktopDownloadBridge(): boolean {
  *   the Linux/Ubuntu issue where HTML files are rendered inline instead
  *   of being downloaded.
  */
-export function useDownloadAttachment(): (attachmentId: string) => Promise<void> {
+export function useDownloadAttachment(
+  source: "workspace" | "markdown-link" = "workspace",
+): (attachmentId: string) => Promise<void> {
   const { t } = useT("editor");
   const workspaceSlug = useWorkspaceSlug();
   return useCallback(
@@ -120,12 +122,14 @@ export function useDownloadAttachment(): (attachmentId: string) => Promise<void>
 
       if (hasDesktopDownloadBridge()) {
         try {
-          const fresh = await api.getAttachment(attachmentId);
+          const fresh = await (source === "markdown-link"
+            ? api.getAttachmentForDownload(attachmentId)
+            : api.getAttachment(attachmentId));
           if (fresh.chat_session_id || fresh.chat_message_id) {
-            const blob=await api.getAttachmentBlob(attachmentId);
-            const url=URL.createObjectURL(blob);
-            triggerBrowserDownload(url,fresh.filename);
-            setTimeout(()=>URL.revokeObjectURL(url),60_000);
+            const blob = await api.getAttachmentBlob(attachmentId);
+            const url = URL.createObjectURL(blob);
+            triggerBrowserDownload(url, fresh.filename);
+            setTimeout(() => URL.revokeObjectURL(url), 60_000);
             return;
           }
           // Prefer the forced-attachment URL (Content-Disposition: attachment in
@@ -158,12 +162,14 @@ export function useDownloadAttachment(): (attachmentId: string) => Promise<void>
         // failures still produce the existing toast instead of a silent failed
         // navigation) and where the server hands back the download URLs it mints
         // for this response.
-        const fresh = await api.getAttachment(attachmentId);
+        const fresh = await (source === "markdown-link"
+          ? api.getAttachmentForDownload(attachmentId)
+          : api.getAttachment(attachmentId));
         if (fresh.chat_session_id || fresh.chat_message_id) {
-          const blob=await api.getAttachmentBlob(attachmentId);
-          const url=URL.createObjectURL(blob);
-          triggerBrowserDownload(url,fresh.filename);
-          setTimeout(()=>URL.revokeObjectURL(url),60_000);
+          const blob = await api.getAttachmentBlob(attachmentId);
+          const url = URL.createObjectURL(blob);
+          triggerBrowserDownload(url, fresh.filename);
+          setTimeout(() => URL.revokeObjectURL(url), 60_000);
           return;
         }
         if (typeof document === "undefined") {
@@ -204,6 +210,6 @@ export function useDownloadAttachment(): (attachmentId: string) => Promise<void>
         failed();
       }
     },
-    [t, workspaceSlug],
+    [t, workspaceSlug, source],
   );
 }

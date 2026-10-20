@@ -80,7 +80,7 @@ func (q *Queries) ChangeChatParticipant(ctx context.Context, arg ChangeChatParti
 const createHumanChatMessage = `-- name: CreateHumanChatMessage :one
 INSERT INTO chat_message(id,chat_session_id,role,content,actor_type,actor_id,root_message_id,client_message_id)
 VALUES ($1,$2,'user',$3,'member',$4,$5,$6)
-RETURNING id, chat_session_id, role, content, task_id, created_at, failure_reason, elapsed_ms, message_kind, channel_media_pending_until, channel_ingested, quick_actions, channel_context_revision, channel_outbound_type, channel_outbound_installation_id, channel_outbound_chat_id, channel_outbound_message_ids, actor_type, actor_id, message_seq, revision, edited_at, deleted_at, root_message_id, broadcast_to_main, client_message_id, content_format, system_kind, source_message_id
+RETURNING id, chat_session_id, role, content, task_id, created_at, failure_reason, elapsed_ms, message_kind, channel_media_pending_until, channel_ingested, quick_actions, channel_context_revision, channel_outbound_type, channel_outbound_installation_id, channel_outbound_chat_id, channel_outbound_message_ids, channel_typing_settled, actor_type, actor_id, message_seq, revision, edited_at, deleted_at, root_message_id, broadcast_to_main, client_message_id, content_format, system_kind, source_message_id
 `
 
 type CreateHumanChatMessageParams struct {
@@ -120,6 +120,7 @@ func (q *Queries) CreateHumanChatMessage(ctx context.Context, arg CreateHumanCha
 		&i.ChannelOutboundInstallationID,
 		&i.ChannelOutboundChatID,
 		&i.ChannelOutboundMessageIds,
+		&i.ChannelTypingSettled,
 		&i.ActorType,
 		&i.ActorID,
 		&i.MessageSeq,
@@ -265,7 +266,7 @@ func (q *Queries) GetChatConversation(ctx context.Context, arg GetChatConversati
 }
 
 const getChatMessageByID = `-- name: GetChatMessageByID :one
-SELECT id, chat_session_id, role, content, task_id, created_at, failure_reason, elapsed_ms, message_kind, channel_media_pending_until, channel_ingested, quick_actions, channel_context_revision, channel_outbound_type, channel_outbound_installation_id, channel_outbound_chat_id, channel_outbound_message_ids, actor_type, actor_id, message_seq, revision, edited_at, deleted_at, root_message_id, broadcast_to_main, client_message_id, content_format, system_kind, source_message_id FROM chat_message WHERE id= $1
+SELECT id, chat_session_id, role, content, task_id, created_at, failure_reason, elapsed_ms, message_kind, channel_media_pending_until, channel_ingested, quick_actions, channel_context_revision, channel_outbound_type, channel_outbound_installation_id, channel_outbound_chat_id, channel_outbound_message_ids, channel_typing_settled, actor_type, actor_id, message_seq, revision, edited_at, deleted_at, root_message_id, broadcast_to_main, client_message_id, content_format, system_kind, source_message_id FROM chat_message WHERE id= $1
 `
 
 func (q *Queries) GetChatMessageByID(ctx context.Context, id pgtype.UUID) (ChatMessage, error) {
@@ -289,6 +290,7 @@ func (q *Queries) GetChatMessageByID(ctx context.Context, id pgtype.UUID) (ChatM
 		&i.ChannelOutboundInstallationID,
 		&i.ChannelOutboundChatID,
 		&i.ChannelOutboundMessageIds,
+		&i.ChannelTypingSettled,
 		&i.ActorType,
 		&i.ActorID,
 		&i.MessageSeq,
@@ -330,7 +332,7 @@ func (q *Queries) GetChatProtectedTask(ctx context.Context, taskID pgtype.UUID) 
 }
 
 const listChatMessagesBySequence = `-- name: ListChatMessagesBySequence :many
-SELECT id, chat_session_id, role, content, task_id, created_at, failure_reason, elapsed_ms, message_kind, channel_media_pending_until, channel_ingested, quick_actions, channel_context_revision, channel_outbound_type, channel_outbound_installation_id, channel_outbound_chat_id, channel_outbound_message_ids, actor_type, actor_id, message_seq, revision, edited_at, deleted_at, root_message_id, broadcast_to_main, client_message_id, content_format, system_kind, source_message_id FROM chat_message
+SELECT id, chat_session_id, role, content, task_id, created_at, failure_reason, elapsed_ms, message_kind, channel_media_pending_until, channel_ingested, quick_actions, channel_context_revision, channel_outbound_type, channel_outbound_installation_id, channel_outbound_chat_id, channel_outbound_message_ids, channel_typing_settled, actor_type, actor_id, message_seq, revision, edited_at, deleted_at, root_message_id, broadcast_to_main, client_message_id, content_format, system_kind, source_message_id FROM chat_message
 WHERE chat_session_id= $1
   AND root_message_id IS NULL
   AND message_seq<= $2 AND message_seq< $3
@@ -376,6 +378,7 @@ func (q *Queries) ListChatMessagesBySequence(ctx context.Context, arg ListChatMe
 			&i.ChannelOutboundInstallationID,
 			&i.ChannelOutboundChatID,
 			&i.ChannelOutboundMessageIds,
+			&i.ChannelTypingSettled,
 			&i.ActorType,
 			&i.ActorID,
 			&i.MessageSeq,
@@ -462,7 +465,7 @@ func (q *Queries) ListChatRecipientIDs(ctx context.Context, arg ListChatRecipien
 }
 
 const listChatThreadMessagesBySequence = `-- name: ListChatThreadMessagesBySequence :many
-SELECT id, chat_session_id, role, content, task_id, created_at, failure_reason, elapsed_ms, message_kind, channel_media_pending_until, channel_ingested, quick_actions, channel_context_revision, channel_outbound_type, channel_outbound_installation_id, channel_outbound_chat_id, channel_outbound_message_ids, actor_type, actor_id, message_seq, revision, edited_at, deleted_at, root_message_id, broadcast_to_main, client_message_id, content_format, system_kind, source_message_id FROM chat_message
+SELECT id, chat_session_id, role, content, task_id, created_at, failure_reason, elapsed_ms, message_kind, channel_media_pending_until, channel_ingested, quick_actions, channel_context_revision, channel_outbound_type, channel_outbound_installation_id, channel_outbound_chat_id, channel_outbound_message_ids, channel_typing_settled, actor_type, actor_id, message_seq, revision, edited_at, deleted_at, root_message_id, broadcast_to_main, client_message_id, content_format, system_kind, source_message_id FROM chat_message
 WHERE chat_session_id= $1 AND root_message_id= $2
   AND message_seq<= $3 AND message_seq< $4
 ORDER BY message_seq DESC LIMIT $5
@@ -509,6 +512,7 @@ func (q *Queries) ListChatThreadMessagesBySequence(ctx context.Context, arg List
 			&i.ChannelOutboundInstallationID,
 			&i.ChannelOutboundChatID,
 			&i.ChannelOutboundMessageIds,
+			&i.ChannelTypingSettled,
 			&i.ActorType,
 			&i.ActorID,
 			&i.MessageSeq,
