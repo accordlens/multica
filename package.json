@@ -29,7 +29,13 @@
     "clean": "turbo clean && rm -rf node_modules",
     "ui:add": "cd packages/ui && npx shadcn@latest add",
     "generate:reserved-slugs": "node scripts/generate-reserved-slugs.mjs",
-    "dev:ui-lab": "pnpm --filter @multica/ui-lab dev"
+    "dev:ui-lab": "pnpm --filter @multica/ui-lab dev",
+    "prepare": "node -e \"if (require('fs').existsSync('.git')) import('./scripts/install-git-hooks.mjs')\"",
+    "hooks:install": "node scripts/install-git-hooks.mjs",
+    "local:ci": "node scripts/local-ci.mjs run",
+    "local:ci:publish": "node scripts/local-ci.mjs publish",
+    "test:local-ci": "node --test scripts/local-ci.test.mjs",
+    "push": "node scripts/local-ci.mjs push"
   },
   "engines": {
     "node": ">=22"
@@ -52,6 +58,9 @@
       "minimatch@9>brace-expansion": "2.1.4",
       "minimatch@10>brace-expansion": "5.0.9",
       "builder-util-runtime": "9.7.0"
+    },
+    "patchedDependencies": {
+      "expo-modules-core@57.0.21": "apps/mobile/patches/expo-modules-core@57.0.21.patch"
     }
   },
   "devDependencies": {

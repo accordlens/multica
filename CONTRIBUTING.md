@@ -44,7 +44,7 @@ This keeps Docker simple while still isolating schema and data.
 
 - Node.js `22`
 - `pnpm` `10.28.2`
-- Go `1.26.6`
+- Go `1.26.9`
 - Docker
 
 ## Important Rules
@@ -636,6 +636,17 @@ make start-worktree
 ```
 
 ### Validate Before Pushing
+
+Fork pushes require a complete local CI result for the committed HEAD:
+
+```bash
+pnpm local:ci
+pnpm push
+```
+
+See [Local CI](docs/local-ci.md) for prerequisites, first-PR publication and the
+full gate list. The commands below remain useful during development but do not
+create the pre-push receipt.
 
 Main checkout:
 

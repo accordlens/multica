@@ -58,8 +58,8 @@ test("renders assistant quick actions and sends the hidden prompt", async ({
     agentId = agent.rows[0]!.id;
 
     const session = await db.query<{ id: string }>(
-      `INSERT INTO chat_session (workspace_id, agent_id, creator_id, title, status)
-       VALUES ($1, $2, $3, 'Plan a focused launch', 'active')
+      `INSERT INTO chat_session (workspace_id, agent_id, creator_id, title, status, explicitly_created_at)
+       VALUES ($1, $2, $3, 'Plan a focused launch', 'active', now())
        RETURNING id::text`,
       [workspace.id, agentId, userId],
     );
@@ -109,6 +109,7 @@ test("renders assistant quick actions and sends the hidden prompt", async ({
     await page.goto(`/${workspace.slug}/chat?session=${sessionId}`, {
       waitUntil: "domcontentloaded",
     });
+    await page.getByText("Plan a focused launch", { exact: true }).first().click();
 
     const primaryAction = page.getByRole("button", {
       name: "Draft the launch brief",
