@@ -28,9 +28,7 @@ import type { User } from "@multica/core/types";
 import { useT } from "../i18n";
 import { PasskeySignIn } from "./passkey-sign-in";
 
-// ---------------------------------------------------------------------------
 // Types
-// ---------------------------------------------------------------------------
 
 interface GoogleAuthConfig {
   clientId: string;
@@ -69,9 +67,7 @@ interface LoginPageProps {
   enrollToken?: string;
 }
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 export function redirectToCliCallback(url: string, token: string, state: string) {
   const separator = url.includes("?") ? "&" : "?";
@@ -99,9 +95,7 @@ export function validateCliCallback(cliCallback: string): boolean {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Component
-// ---------------------------------------------------------------------------
 
 export function LoginPage({
   logo,
@@ -322,9 +316,7 @@ export function LoginPage({
     window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
   };
 
-  // -------------------------------------------------------------------------
   // CLI confirm step
-  // -------------------------------------------------------------------------
 
   if (step === "cli_confirm" && existingUser) {
     return (
@@ -366,9 +358,7 @@ export function LoginPage({
     );
   }
 
-  // -------------------------------------------------------------------------
   // Passkey-only deployments: no email, code or Google step at all
-  // -------------------------------------------------------------------------
 
   if (passkeyOnly || enrollToken) {
     return (
@@ -410,9 +400,7 @@ export function LoginPage({
     );
   }
 
-  // -------------------------------------------------------------------------
   // Code verification step
-  // -------------------------------------------------------------------------
 
   if (step === "code") {
     return (
@@ -482,9 +470,7 @@ export function LoginPage({
     );
   }
 
-  // -------------------------------------------------------------------------
   // Email step
-  // -------------------------------------------------------------------------
 
   return (
     <div className="flex min-h-svh items-center justify-center">
