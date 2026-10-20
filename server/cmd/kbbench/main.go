@@ -418,6 +418,15 @@ func evaluate(ctx context.Context, conn *pgx.Conn, f fixture, in input, trace io
 		}
 		for _, ws := range f.Workspaces {
 			allowed := ws.Key == p.Workspaces[0]
+			member := false
+			for _, name := range in.Workspaces[ws.Key].Members {
+				member = member || name == p.Asker
+			}
+			// Do not read an authorized but unselected workspace, even into
+			// the trace. Only actual non-membership probes belong outside scope.
+			if !allowed && member {
+				continue
+			}
 			qr, err := query(search, ws.Key, ws.ID, userID, p.Query)
 			if err != nil {
 				return nil, err
@@ -426,17 +435,9 @@ func evaluate(ctx context.Context, conn *pgx.Conn, f fixture, in input, trace io
 				return nil, err
 			}
 			if !allowed {
-				// A principal may be a member of another workspace while querying
-				// only one. Such a query is not an unauthorized probe.
-				member := false
-				for _, name := range in.Workspaces[ws.Key].Members {
-					member = member || name == p.Asker
-				}
-				if !member {
-					r.DeniedProbes = append(r.DeniedProbes, qr)
-					if qr.Status != http.StatusNotFound && qr.Status != http.StatusForbidden {
-						return nil, errors.New("unauthorized workspace probe was not denied")
-					}
+				r.DeniedProbes = append(r.DeniedProbes, qr)
+				if qr.Status != http.StatusNotFound && qr.Status != http.StatusForbidden {
+					return nil, errors.New("unauthorized workspace probe was not denied")
 				}
 				continue
 			}

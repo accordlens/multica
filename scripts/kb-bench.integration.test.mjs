@@ -60,6 +60,17 @@ test("real PostgreSQL: revisions, tombstone, workspace denial, and repeatable cl
       assert.equal(readFileSync(`${manifest}.queries.jsonl`, "utf8").trim().split("\n").length, 2);
       assert.equal(invoke(["--cleanup", manifest], manifest).status, 0, "cleanup is idempotent");
     }
+    const multiMember = structuredClone(plan);
+    multiMember.workspaces.private.members.push("reader");
+    const selectedManifest = join(directory, "selected-workspace.json");
+    const selected = invoke([], selectedManifest, JSON.stringify(backendInput(multiMember)));
+    assert.equal(selected.status, 0, selected.stderr);
+    const selectedRow = JSON.parse(selected.stdout).responses[0];
+    assert.equal(selectedRow.queries.length, 1);
+    assert.equal(selectedRow.denied_probes.length, 0);
+    const selectedTrace = readFileSync(`${selectedManifest}.queries.jsonl`, "utf8");
+    assert.equal(selectedTrace.trim().split("\n").length, 1, "do not query an authorized but unselected workspace");
+    assert.ok(!selectedTrace.includes("Confidential orange plan"));
     const bad = structuredClone(plan);
     bad.plans[0].documents[0].issue_id = "bad-identity";
     const failedManifest = join(directory, "failed.json");
