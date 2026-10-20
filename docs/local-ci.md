@@ -33,8 +33,8 @@ PostgreSQL and Redis containers on random loopback ports, and executes:
 - SQLC regeneration with a drift check; Go race build and tagged integration vet.
 - All default Go tests with race detection and fresh results in a local Linux
   container with pinned Go/Node and Git >= 2.40, as a non-root user. Packages and
-  tests run serially: global media-reconciler sweeps otherwise claim other
-  packages' fixtures from their shared database. The isolated process namespace
+  tests run serially to limit CPU and shared-database contention. Concurrency
+  regressions still exercise concurrent workers. The isolated process namespace
   avoids host process-scan timing failures on busy developer machines.
 - Go vulnerability scanning against the current vulnerability database.
 - Playwright against app processes and synthetic data owned by this run.

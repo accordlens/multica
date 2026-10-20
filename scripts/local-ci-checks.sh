@@ -25,9 +25,9 @@ case "${1:-}" in
     go version
     node --version
     (cd server && go run ./cmd/migrate up)
-    # Packages share one database, including global media-reconciler sweeps.
-    # Serialize packages as well as tests so fixtures cannot claim each other's
-    # rows or starve subprocess deadlines. Never replay cached results.
+    # Serialize packages and tests to limit CPU and shared-database contention.
+    # Concurrency regressions still run concurrent workers. Never replay cached
+    # results or starve subprocess deadlines on developer machines.
     bash scripts/go-test-with-agent-cli-guard.sh -- bash -c \
       'cd server && go test -race -count=1 -p=1 -parallel=1 ./...'
     ;;
