@@ -3,8 +3,14 @@
 -- quarantine their human-facing content until an operator classifies the origin.
 CREATE TABLE IF NOT EXISTS chat_protected_task (task_id uuid NOT NULL,chat_session_id uuid,is_private boolean NOT NULL DEFAULT true);
 INSERT INTO chat_protected_task(task_id,chat_session_id,is_private)
-SELECT t.id,t.chat_session_id,(t.chat_session_id IS NOT NULL OR t.issue_id IS NULL) FROM agent_task_queue t
+SELECT t.id,t.chat_session_id,(t.chat_session_id IS NOT NULL OR (t.issue_id IS NULL AND t.autopilot_run_id IS NULL AND COALESCE(t.context->>'type','') <> 'quick_create')) FROM agent_task_queue t
 WHERE NOT EXISTS(SELECT 1 FROM chat_protected_task p WHERE p.task_id=t.id);
+-- Repair classification from an earlier preview/retry, but never clear a
+-- retained conversation scope, even if its task's historical FK was nulled.
+UPDATE chat_protected_task p SET is_private=false
+FROM agent_task_queue t
+WHERE p.task_id=t.id AND p.is_private AND p.chat_session_id IS NULL AND t.chat_session_id IS NULL
+AND (t.issue_id IS NOT NULL OR t.autopilot_run_id IS NOT NULL OR t.context->>'type'='quick_create');
 CREATE OR REPLACE FUNCTION protect_chat_task() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE original_scope uuid; private_scope boolean;
 BEGIN

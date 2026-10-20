@@ -42,7 +42,7 @@ CREATE TABLE "user"(id uuid PRIMARY KEY);
 CREATE TABLE chat_session(id uuid PRIMARY KEY,workspace_id uuid NOT NULL,agent_id uuid NOT NULL,creator_id uuid NOT NULL,
  created_at timestamptz NOT NULL DEFAULT now(),last_read_at timestamptz NOT NULL DEFAULT now(),status text NOT NULL DEFAULT 'active');
 CREATE TABLE chat_message(id uuid PRIMARY KEY,chat_session_id uuid NOT NULL,role text NOT NULL,content text NOT NULL,task_id uuid,created_at timestamptz NOT NULL DEFAULT now());
-CREATE TABLE agent_task_queue(id uuid PRIMARY KEY,agent_id uuid NOT NULL,chat_session_id uuid,chat_input_task_id uuid,context jsonb,issue_id uuid);
+CREATE TABLE agent_task_queue(id uuid PRIMARY KEY,agent_id uuid NOT NULL,chat_session_id uuid,chat_input_task_id uuid,context jsonb,issue_id uuid,autopilot_run_id uuid);
 CREATE TABLE attachment(id uuid PRIMARY KEY,chat_session_id uuid,chat_message_id uuid,task_id uuid,url text NOT NULL);
 `); err != nil {
 				t.Fatal(err)
@@ -53,6 +53,8 @@ INSERT INTO "user" VALUES('00000000-0000-4000-8000-000000000001');
 INSERT INTO chat_session(id,workspace_id,agent_id,creator_id,last_read_at) VALUES('00000000-0000-4000-8000-000000000005','00000000-0000-4000-8000-000000000009','00000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000001','2026-01-01');
 INSERT INTO agent_task_queue(id,agent_id,chat_session_id,chat_input_task_id,context) VALUES('00000000-0000-4000-8000-000000000004','00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000005','00000000-0000-4000-8000-000000000004','{"input":"immutable"}');
 INSERT INTO agent_task_queue(id,agent_id,issue_id) VALUES('00000000-0000-4000-8000-000000000010','00000000-0000-4000-8000-000000000002',NULL),('00000000-0000-4000-8000-000000000011','00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000009');
+INSERT INTO agent_task_queue(id,agent_id,context) VALUES('00000000-0000-4000-8000-000000000012','00000000-0000-4000-8000-000000000002','{"type":"quick_create","request":"preserved"}');
+INSERT INTO agent_task_queue(id,agent_id,autopilot_run_id) VALUES('00000000-0000-4000-8000-000000000013','00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000009');
 INSERT INTO chat_message VALUES('00000000-0000-4000-8000-000000000006','00000000-0000-4000-8000-000000000005','user','input','00000000-0000-4000-8000-000000000004','2026-01-01'),('00000000-0000-4000-8000-000000000007','00000000-0000-4000-8000-000000000005','assistant','reply','00000000-0000-4000-8000-000000000004','2026-01-02');
 INSERT INTO attachment VALUES('00000000-0000-4000-8000-000000000008','00000000-0000-4000-8000-000000000005','00000000-0000-4000-8000-000000000006','00000000-0000-4000-8000-000000000004','/uploads/legacy-private.txt');
 `); err != nil {
@@ -81,6 +83,10 @@ INSERT INTO attachment VALUES('00000000-0000-4000-8000-000000000008','00000000-0
 				t.Fatalf("legacy records changed:\n%s\n%s", before, after)
 			}
 			if legacy {
+				var knownPublic int
+				if err = conn.QueryRow(ctx, `SELECT count(*) FROM chat_protected_task WHERE task_id IN ('00000000-0000-4000-8000-000000000012','00000000-0000-4000-8000-000000000013') AND NOT is_private`).Scan(&knownPublic); err != nil || knownPublic != 2 {
+					t.Fatalf("quick-create/autopilot runs must remain public: got %d want 2: %v", knownPublic, err)
+				}
 				var privateBound, unknownDenied, issuePublic bool
 				if err = conn.QueryRow(ctx, `SELECT (SELECT is_private AND chat_session_id IS NOT NULL FROM chat_protected_task WHERE task_id='00000000-0000-4000-8000-000000000004'),(SELECT is_private AND chat_session_id IS NULL FROM chat_protected_task WHERE task_id='00000000-0000-4000-8000-000000000010'),(SELECT NOT is_private FROM chat_protected_task WHERE task_id='00000000-0000-4000-8000-000000000011')`).Scan(&privateBound, &unknownDenied, &issuePublic); err != nil || !privateBound || !unknownDenied || !issuePublic {
 					t.Fatalf("historical task classification: bound=%v quarantined=%v issuePublic=%v error=%v", privateBound, unknownDenied, issuePublic, err)
@@ -98,6 +104,18 @@ INSERT INTO attachment VALUES('00000000-0000-4000-8000-000000000008','00000000-0
 				}
 				if unread != 1 || readSeq != 1 || participants != 1 {
 					t.Fatalf("retry/read backfill changed: unread=%d read=%d participants=%d", unread, readSeq, participants)
+				}
+				// An already-applied preview classified these known ordinary runs
+				// as private. Repair them without opening a deleted private chat.
+				if _, err = conn.Exec(ctx, `UPDATE chat_protected_task SET is_private=true WHERE task_id IN ('00000000-0000-4000-8000-000000000012','00000000-0000-4000-8000-000000000013'); UPDATE agent_task_queue SET chat_session_id=NULL,context='{"type":"quick_create"}' WHERE id='00000000-0000-4000-8000-000000000004'`); err != nil {
+					t.Fatal(err)
+				}
+				applyMigrationFile(t, ctx, conn.Conn(), "581_team_chat_protected_tasks.up.sql")
+				if err = conn.QueryRow(ctx, `SELECT count(*) FROM chat_protected_task WHERE task_id IN ('00000000-0000-4000-8000-000000000012','00000000-0000-4000-8000-000000000013') AND NOT is_private`).Scan(&knownPublic); err != nil || knownPublic != 2 {
+					t.Fatalf("preview repair failed: %d %v", knownPublic, err)
+				}
+				if err = conn.QueryRow(ctx, `SELECT is_private AND chat_session_id='00000000-0000-4000-8000-000000000005' FROM chat_protected_task WHERE task_id='00000000-0000-4000-8000-000000000004'`).Scan(&privateBound); err != nil || !privateBound {
+					t.Fatalf("repair opened a deleted private chat task: %v %v", privateBound, err)
 				}
 			}
 			newPublicTask := uuid.NewString()
