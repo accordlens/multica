@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
-import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -24,6 +24,12 @@ export const gates = [
   ["selfhost", shellGate("selfhost")],
 ];
 const marker = "<!-- multica-local-ci -->";
+const children = new Set();
+let interrupted = false;
+function stop(child) {
+  if (!child.pid) return;
+  try { process.kill(-child.pid, "SIGKILL"); } catch { /* Already exited. */ }
+}
 const now = () => new Date().toISOString();
 const command = (cwd, tool, args, options = {}) => (execFileSync(tool, args, {
   cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...options,
@@ -62,6 +68,7 @@ export function verifyPush(cwd, input) {
     checked = true;
   }
   if (!checked) return;
+  if (existsSync(join(dirname(reportPath(cwd)), "running.lock"))) throw new Error("Local CI is still running; push refused.");
   requireClean(cwd, sha);
   let report;
   try { report = JSON.parse(readFileSync(reportPath(cwd), "utf8")); }
@@ -74,15 +81,18 @@ export function verifyPush(cwd, input) {
 export function testEnvironment(source = process.env) {
   const allowed = /^(PATH|HOME|USER|LOGNAME|SHELL|TMPDIR|TMP|TEMP|LANG|LC_.*|SystemRoot|COMSPEC|PATHEXT|USERPROFILE|APPDATA|LOCALAPPDATA|DOCKER_HOST|DOCKER_CONTEXT|DOCKER_CONFIG|SSL_CERT_FILE|SSL_CERT_DIR|NODE_EXTRA_CA_CERTS)$/;
   const env = Object.fromEntries(Object.entries(source).filter(([key]) => allowed.test(key)));
-  return { ...env, CI: "true", GOMAXPROCS: "4", GOFLAGS: "-p=4", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "tag.gpgsign", GIT_CONFIG_VALUE_0: "false" };
+  return { ...env, CI: "true", GOMAXPROCS: "4", GOFLAGS: "-p=4", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
 }
 async function execute(cwd, argv, env, logfile) {
   const fd = openSync(logfile, "a");
   try {
     return await new Promise((done) => {
-      const child = spawn(argv[0], argv.slice(1), { cwd, env, stdio: ["ignore", fd, fd], timeout: 45 * 60 * 1000 });
+      const child = spawn(argv[0], argv.slice(1), { cwd, env, detached: true, stdio: ["ignore", fd, fd] });
+      children.add(child);
+      const timeout = setTimeout(() => stop(child), 45 * 60 * 1000);
+      child.once("close", () => { clearTimeout(timeout); children.delete(child); });
       child.on("error", (error) => { writeFileSync(logfile, `${error.message}\n`, { flag: "a" }); done(1); });
-      child.on("exit", (code) => done(code ?? 1));
+      child.on("exit", (code) => { stop(child); done(code ?? 1); });
     });
   } finally { closeSync(fd); }
 }
@@ -96,37 +106,39 @@ async function freePort() {
 }
 async function waitFor(check, description) {
   for (let attempt = 0; attempt < 180; attempt++) {
+    if (interrupted) throw new Error("Local CI interrupted.");
     try { if (await check()) return; } catch { /* Service is still starting. */ }
     await delay(1000);
   }
   throw new Error(`Timed out waiting for ${description}.`);
 }
 async function e2e(cwd, env, logfile) {
-  const children = [];
+  const services = [];
   const fd = openSync(`${logfile}.services`, "a");
   try {
     for (const argv of [["server/bin/server"], ["pnpm", "--filter", "@multica/web", "exec", "next", "start", "--port", env.FRONTEND_PORT]]) {
       const child = spawn(argv[0], argv.slice(1), { cwd, env, detached: true, stdio: ["ignore", fd, fd] });
       child.on("error", () => {});
-      children.push(child);
+      services.push(child);
+      children.add(child);
     }
     for (const url of [`http://127.0.0.1:${env.PORT}/readyz`, env.PLAYWRIGHT_BASE_URL]) {
       await waitFor(async () => {
-        if (children.some((child) => child.exitCode !== null || !child.pid)) throw new Error("Service exited");
+        if (services.some((child) => child.exitCode !== null || !child.pid)) throw new Error("Service exited");
         return (await fetch(url, { signal: AbortSignal.timeout(1000) })).ok;
       }, url);
     }
     return await execute(cwd, gates.find(([name]) => name === "e2e")[1], env, logfile);
   } finally {
     // Only process groups created here are signalled; never reuse a local app.
-    for (const child of children) {
+    for (const child of services) {
       if (!child.pid) continue;
       try { process.kill(-child.pid, "SIGTERM"); } catch { /* Already exited. */ }
     }
     await delay(1000);
-    for (const child of children) {
-      if (!child.pid) continue;
-      try { process.kill(-child.pid, "SIGKILL"); } catch { /* Already exited. */ }
+    for (const child of services) {
+      stop(child);
+      children.delete(child);
     }
     closeSync(fd);
   }
@@ -137,6 +149,10 @@ export async function run(cwd) {
   const sha = head(cwd);
   requireClean(cwd, sha);
   const latest = reportPath(cwd);
+  mkdirSync(dirname(latest), { recursive: true });
+  const lock = join(dirname(latest), "running.lock");
+  try { mkdirSync(lock); } catch { throw new Error("Local CI is already running; inspect local-ci/running.lock before retrying."); }
+  writeFileSync(join(lock, "owner.json"), JSON.stringify({ pid: process.pid, sha, startedAt: now() }));
   const directory = join(dirname(latest), `${Date.now()}-${sha.slice(0, 12)}`);
   mkdirSync(directory, { recursive: true });
   const workspaceBase = join(homedir(), ".cache", "multica-local-ci");
@@ -155,21 +171,26 @@ export async function run(cwd) {
   const containers = [];
   const docker = (...args) => command(cwd, "docker", args, { env });
   const setupLog = join(directory, "setup.log");
+  interrupted = false;
+  const interrupt = () => { interrupted = true; for (const child of children) stop(child); };
+  process.on("SIGINT", interrupt);
+  process.on("SIGTERM", interrupt);
   try {
+    const origin = git(cwd, "remote", "get-url", "origin");
     for (const [tool, args] of [["node", ["--version"]], ["pnpm", ["--version"]], ["go", ["version"]], ["docker", ["version", "--format", "{{.Server.Version}}"]], ["pwsh", ["--version"]], ["helm", ["version", "--short"]]]) {
       report.toolchain ??= {};
       report.toolchain[tool] = command(tool === "go" ? join(cwd, "server") : cwd, tool, args, { env });
     }
     git(cwd, "clone", "--no-hardlinks", "--no-checkout", cwd, source);
     git(source, "checkout", "--detach", sha);
-    git(source, "remote", "set-url", "origin", git(cwd, "remote", "get-url", "origin"));
+    git(source, "remote", "set-url", "origin", origin);
     for (const [kind, image, port, extra] of [
       ["pg", "pgvector/pgvector:pg17", "5432", ["-e", "POSTGRES_USER=multica", "-e", "POSTGRES_PASSWORD=local-ci", "-e", "POSTGRES_DB=multica_ci"]],
       ["redis", "redis:7-alpine", "6379", []],
     ]) {
       const name = `multica-local-ci-${process.pid}-${Date.now()}-${kind}`;
-      containers.push(name);
-      docker("run", "--rm", "--detach", "--name", name, "-p", `127.0.0.1::${port}`, ...extra, image);
+      const id = docker("run", "--rm", "--detach", "--name", name, "-p", `127.0.0.1::${port}`, ...extra, image);
+      containers.push(id);
       const hostPort = docker("port", name, `${port}/tcp`).split(":").at(-1);
       if (kind === "pg") {
         env.DATABASE_URL = `postgres://multica:local-ci@127.0.0.1:${hostPort}/multica_ci?sslmode=disable`;
@@ -186,18 +207,20 @@ export async function run(cwd) {
       NEXT_PUBLIC_API_URL: `http://localhost:${env.PORT}`, NEXT_PUBLIC_WS_URL: `ws://localhost:${env.PORT}/ws`,
       MULTICA_PUBLIC_URL: `http://localhost:${env.PORT}`, MULTICA_APP_URL: env.FRONTEND_ORIGIN,
       PLAYWRIGHT_BASE_URL: env.FRONTEND_ORIGIN, LOCAL_UPLOAD_BASE_URL: `http://localhost:${env.PORT}`,
-      JWT_SECRET: "local-ci-synthetic-jwt-secret-at-least-32-characters", DEV_MODE: "true",
+      JWT_SECRET: "local-ci-synthetic-jwt-secret-at-least-32-characters", APP_ENV: "development", DO_NOT_TRACK: "true",
       LOCAL_UPLOAD_DIR: join(source, "data", "uploads"),
     });
     if (await execute(source, ["pnpm", "install", "--frozen-lockfile"], env, setupLog)) throw new Error("Dependency install failed; see setup.log.");
     if (await execute(source, ["pnpm", "exec", "playwright", "install", "chromium"], env, setupLog)) throw new Error("Chromium install failed; see setup.log.");
     for (const [name, argv] of gates) {
+      if (interrupted) throw new Error("Local CI interrupted.");
       const entry = { name, command: argv, startedAt: now(), state: "pending" };
       report.gates.push(entry);
       save();
       console.log(`RUN ${name}`);
       const logfile = join(directory, `${name}.log`);
-      try { entry.exitCode = name === "e2e" ? await e2e(source, env, logfile) : await execute(source, argv, env, logfile); }
+      const gateEnv = ["scripts", "selfhost"].includes(name) ? { ...testEnvironment(), TMPDIR: env.TMPDIR } : env;
+      try { entry.exitCode = name === "e2e" ? await e2e(source, gateEnv, logfile) : await execute(source, argv, gateEnv, logfile); }
       catch (error) { entry.exitCode = 1; writeFileSync(logfile, `${error.message}\n`, { flag: "a" }); }
       entry.state = entry.exitCode === 0 ? "success" : "failure";
       entry.finishedAt = now();
@@ -218,6 +241,9 @@ export async function run(cwd) {
     rmSync(workspace, { recursive: true, force: true });
     report.finishedAt = now();
     save();
+    rmSync(lock, { recursive: true, force: true });
+    process.removeListener("SIGINT", interrupt);
+    process.removeListener("SIGTERM", interrupt);
   }
   console.log(`Local CI ${report.state.toUpperCase()}; logs: ${directory}`);
   return report.state === "success" ? 0 : 1;
@@ -225,7 +251,10 @@ export async function run(cwd) {
 
 export function markdown(report) {
   return `${marker}\nLocal CI **${report.state.toUpperCase()}** for \`${report.sha}\`\n\n` +
-    report.gates.map((gate) => `- ${gate.state === "success" ? "PASS" : "FAIL"} \`${gate.name}\``).join("\n") +
+    gates.map(([name]) => {
+      const gate = report.gates.find((result) => result.name === name);
+      return `- ${gate?.state === "success" ? "PASS" : gate ? "FAIL" : "NOT RUN"} \`${name}\``;
+    }).join("\n") +
     `\n\nCompleted: ${report.finishedAt}. Executed locally on ${report.toolchain?.node ?? "unknown Node"}.` +
     "\n\nNative Windows/macOS matrix, real-provider smoke, desktop packaging and performance benchmarks remain separate checks. Full logs stay local; this comment contains no environment values.\n";
 }
@@ -245,7 +274,7 @@ export function publish(cwd, prNumber) {
   const bodyfile = join(dirname(reportPath(cwd)), "comment.json");
   writeFileSync(bodyfile, JSON.stringify({ body: markdown(report) }));
   const posted = JSON.parse(gh("api", "--method", previous ? "PATCH" : "POST", previous ? `repos/${repository}/issues/comments/${previous.id}` : `repos/${repository}/issues/${pr.number}/comments`, "--input", bodyfile));
-  for (const [context, state] of [...report.gates.map((gate) => [`local-ci/${gate.name}`, gate.state]), ["local-ci", report.state]]) {
+  for (const [context, state] of [...gates.map(([name]) => [`local-ci/${name}`, report.gates.find((gate) => gate.name === name)?.state]), ["local-ci", report.state]]) {
     const payload = join(dirname(reportPath(cwd)), "status.json");
     writeFileSync(payload, JSON.stringify({ context, state: state === "success" ? "success" : "failure", target_url: posted.html_url, description: "Local verification of the exact PR commit" }));
     gh("api", "--method", "POST", `repos/${repository}/statuses/${sha}`, "--input", payload);

@@ -5,6 +5,8 @@ case "${1:-}" in
   scripts)
     node --test scripts/*.test.mjs
     for suite in scripts/*.test.sh; do bash "$suite"; done
+    git fetch --no-tags origin main
+    node scripts/check-image-budget.mjs --base FETCH_HEAD
     node scripts/check-ui-wildcard-exports.mjs
     node scripts/check-ui-radius-tokens.mjs
     node scripts/generate-reserved-slugs.mjs

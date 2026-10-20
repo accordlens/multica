@@ -26,7 +26,8 @@ development `.env` files.
 of that exact commit, installs the frozen lockfile, provisions disposable
 PostgreSQL and Redis containers on random loopback ports, and executes:
 
-- Script, installer, Helm and UI policy regressions; generated reserved slugs.
+- Script, installer, Helm and UI policy regressions; image budget against main
+  and generated reserved slugs.
 - Frontend typecheck, lint, unit tests and builds, including docs and desktop.
 - Mobile typecheck, lint and unit tests, separately from root frontend tasks.
 - SQLC regeneration with a drift check; Go race build and tagged integration vet.
@@ -50,6 +51,11 @@ passed for the exact commit being pushed, with no staged, unstaged or untracked
 changes. It does not rerun tests. Commits, amendments, rebases and failed retries
 invalidate old evidence. Multiple pushed refs must all resolve to the verified
 HEAD; deletions need no evidence. There is no time-based expiry.
+
+Only one runner may use a checkout at a time. Interruptions revoke the receipt
+and clean up owned resources. After an uncatchable process termination, inspect
+the checkout's Git directory `local-ci/running.lock` and remove that directory
+only after confirming its runner has stopped; then rerun the complete pipeline.
 
 Publication verifies the live PR head, updates one marked summary comment and
 writes `local-ci/<gate>` plus aggregate `local-ci` commit statuses linked to that

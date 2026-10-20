@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { gates, markdown, requirePass, run, testEnvironment, verifyPush } from "./local-ci.mjs";
+import { gates, markdown, publish, requirePass, run, testEnvironment, verifyPush } from "./local-ci.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_COUNT: "0" };
@@ -103,6 +103,13 @@ test("deletions and up-to-date pushes need no receipt", (t) => {
   verifyPush(f.repo, `(delete) ${"0".repeat(40)} refs/heads/old ${f.sha}`);
 });
 
+test("an active run blocks reuse of an older passing result", (t) => {
+  const f = fixture(t);
+  f.save();
+  mkdirSync(join(dirname(f.receipt), "running.lock"));
+  assert.throws(() => verifyPush(f.repo, f.input), /still running/);
+});
+
 test("installer preserves attribution and refuses unrelated custom hooks", (t) => {
   const f = fixture(t);
   writeFileSync(join(f.repo, ".git/hooks/prepare-commit-msg"), '#!/bin/sh\nprintf "\\nFixture attribution\\n" >> "$1"\n', { mode: 0o755 });
@@ -126,8 +133,8 @@ test("hook configuration and receipts are isolated between worktrees", (t) => {
 });
 
 test("test children receive no runtime, application or provider secrets", () => {
-  const result = testEnvironment({ PATH: "/bin", HOME: "/example", MULTICA_TOKEN: "secret", DATABASE_URL: "production", OPENAI_API_KEY: "secret", GH_TOKEN: "secret", GIT_DIR: "/wrong", REDIS_URL: "production" });
-  for (const key of ["MULTICA_TOKEN", "DATABASE_URL", "OPENAI_API_KEY", "GH_TOKEN", "GIT_DIR", "REDIS_URL"]) assert.equal(result[key], undefined);
+  const result = testEnvironment({ PATH: "/bin", HOME: "/example", MULTICA_TOKEN: "secret", DATABASE_URL: "production", OPENAI_API_KEY: "secret", GH_TOKEN: "secret", GIT_DIR: "/wrong", REDIS_URL: "production", GIT_CONFIG_COUNT: "1" });
+  for (const key of ["MULTICA_TOKEN", "DATABASE_URL", "OPENAI_API_KEY", "GH_TOKEN", "GIT_DIR", "REDIS_URL", "GIT_CONFIG_COUNT"]) assert.equal(result[key], undefined);
   assert.equal(result.HOME, "/example");
 });
 
@@ -146,6 +153,49 @@ test("public summaries pin SHA without local logs or environment", (t) => {
   assert.match(text, new RegExp(f.sha));
   for (const [name] of gates) assert.ok(text.includes(`PASS \`${name}\``));
   assert.ok(!text.includes(f.repo));
+});
+
+test("publication rejects stale PR heads, edits its marked comment, and never passes missing gates", (t) => {
+  const f = fixture(t);
+  f.save();
+  git(f.repo, "remote", "add", "origin", "https://github.com/example/fixture.git");
+  const bin = join(f.directory, "bin");
+  mkdirSync(bin);
+  const log = join(f.directory, "requests.jsonl");
+  writeFileSync(join(bin, "gh"), `#!${process.execPath}
+const fs = require('fs');
+const args = process.argv.slice(2);
+const index = args.indexOf('--input');
+const body = index < 0 ? null : JSON.parse(fs.readFileSync(args[index + 1]));
+fs.appendFileSync(process.env.CI_FIXTURE_LOG, JSON.stringify({args, body}) + '\\n');
+let response = {};
+if (args[0] === 'repo') response = { nameWithOwner: 'example/fixture' };
+else if (args[0] === 'pr') response = { number: 6, headRefOid: process.env.CI_FIXTURE_SHA };
+else if (args[1] === 'user') response = { login: 'fixture' };
+else if (args.includes('--paginate')) response = [[{ id: 41, user: { login: 'fixture' }, body: '<!-- multica-local-ci --> old' }]];
+else response = { html_url: 'https://github.com/example/fixture/pull/6#issuecomment-41' };
+console.log(JSON.stringify(response));
+`, { mode: 0o755 });
+  const saved = { PATH: process.env.PATH, CI_FIXTURE_LOG: process.env.CI_FIXTURE_LOG, CI_FIXTURE_SHA: process.env.CI_FIXTURE_SHA };
+  t.after(() => { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } });
+  process.env.PATH = `${bin}:${process.env.PATH}`;
+  process.env.CI_FIXTURE_LOG = log;
+  process.env.CI_FIXTURE_SHA = "0".repeat(40);
+  assert.throws(() => publish(f.repo, "6"), /Push this exact commit/);
+  let requests = readFileSync(log, "utf8").trim().split("\n").map(JSON.parse);
+  assert.ok(requests.every((request) => !request.args.includes('--method')));
+  process.env.CI_FIXTURE_SHA = f.sha;
+  f.save({ ...f.report, state: "failure", gates: f.report.gates.slice(0, 1) });
+  publish(f.repo, "6");
+  requests = readFileSync(log, "utf8").trim().split("\n").map(JSON.parse);
+  const updates = requests.filter((request) => request.args.includes('--method'));
+  assert.ok(updates[0].args.includes('PATCH'));
+  assert.ok(updates[0].args.includes('repos/example/fixture/issues/comments/41'));
+  assert.match(updates[0].body.body, /NOT RUN `backend-test`/);
+  const statuses = updates.slice(1).map((request) => request.body);
+  assert.equal(statuses.length, gates.length + 1);
+  assert.equal(statuses.find((status) => status.context === 'local-ci/backend-test').state, 'failure');
+  assert.equal(statuses.at(-1).state, 'failure');
 });
 
 test("verification Actions only run manually", () => {
