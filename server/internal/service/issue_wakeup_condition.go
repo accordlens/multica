@@ -51,9 +51,10 @@ type WakeupCondition struct {
 	Event string `json:"event,omitempty"`
 	// other_issue: the watched issue and done | ended | in_review. The
 	// identifier is recorded for display; clients never set it.
-	IssueID    string `json:"issue_id,omitempty"`
-	State      string `json:"state,omitempty"`
-	Identifier string `json:"identifier,omitempty"`
+	IssueID    string                  `json:"issue_id,omitempty"`
+	State      string                  `json:"state,omitempty"`
+	Identifier string                  `json:"identifier,omitempty"`
+	Handoff    *ReviewHandoffCondition `json:"handoff,omitempty"`
 }
 
 var errBadCondition = errors.New("invalid condition")
@@ -67,7 +68,7 @@ var (
 )
 
 func conditionDiagnostic(err error) bool {
-	return errors.Is(err, errPRSnapshotsUnavailable) || errors.Is(err, errPRNotLinked) || errors.Is(err, errPRSnapshotPending)
+	return errors.Is(err, errPRSnapshotsUnavailable) || errors.Is(err, errPRNotLinked) || errors.Is(err, errPRSnapshotPending) || errors.Is(err, errHandoffSourceChanged)
 }
 
 func badCondition(msg string) error {
@@ -99,6 +100,12 @@ func validateCondition(ctx context.Context, tx pgx.Tx, issue db.Issue, raw json.
 	var events []string
 	var out WakeupCondition
 	switch c.Type {
+	case "review_handoff":
+		if err := validateHandoffCondition(ctx, tx, issue, c.Handoff); err != nil {
+			return nil, nil, err
+		}
+		out = WakeupCondition{Type: c.Type, Handoff: c.Handoff}
+		events = []string{"comment.created", "comment.updated", "comment.deleted"}
 	case "issue_field":
 		out = WakeupCondition{Type: c.Type, Field: c.Field}
 		switch c.Field {
@@ -211,7 +218,7 @@ func validateCondition(ctx context.Context, tx pgx.Tx, issue db.Issue, raw json.
 		}
 		out = WakeupCondition{Type: c.Type, IssueID: util.UUIDToString(id), State: c.State, Identifier: identifier}
 	default:
-		return nil, nil, badCondition("type must be issue_field, children_done, pull_request or other_issue")
+		return nil, nil, badCondition("type must be issue_field, children_done, pull_request, other_issue or review_handoff")
 	}
 	normalized, _ := json.Marshal(out)
 	return normalized, events, nil
@@ -226,6 +233,8 @@ func (s *IssueWakeupService) evaluateCondition(ctx context.Context, tx pgx.Tx, q
 		return false, "", nil, err
 	}
 	switch c.Type {
+	case "review_handoff":
+		return evaluateHandoffCondition(ctx, tx, q, w, c.Handoff)
 	case "issue_field":
 		var status, assigneeType string
 		var assigneeID pgtype.UUID
@@ -401,6 +410,9 @@ func (s *IssueWakeupService) pollCondition(ctx context.Context, tx pgx.Tx, q *db
 	// gets its own receipt key.
 	state := w.ConditionState
 	if met && fingerprint != state {
+		if run, ok := observed["source_task_id"].(string); isReviewHandoff(w.Condition) && ok {
+			causes = []string{run}
+		}
 		if err = recordConditionMet(ctx, q, w, observed, causes, now); err != nil {
 			return w.NextFireAt, err
 		}
@@ -601,10 +613,17 @@ func stageProgress(children []subIssue) (bool, string, map[string]any) {
 // names the agent runs whose changes satisfied it, when all of them are known.
 func recordConditionMet(ctx context.Context, q *db.Queries, w db.IssueWakeup, observed map[string]any, causes []string, now time.Time) error {
 	facts := map[string]any{"condition": json.RawMessage(w.Condition), "observed": observed, "observed_at": now.UTC().Format(time.RFC3339)}
+	key := "condition:" + now.UTC().Format(time.RFC3339Nano)
+	if isReviewHandoff(w.Condition) {
+		// One logical delivery per subscription revision and producer event,
+		// including a temporary loss and restoration of source visibility.
+		key = "handoff:" + fmt.Sprint(observed["handoff_id"])
+		facts["source_task_id"] = observed["source_task_id"]
+	}
 	if len(causes) > 0 {
 		facts["source_task_ids"] = causes
 	}
 	payload, _ := json.Marshal(facts)
-	_, err := q.RecordWakeupReceipt(ctx, db.RecordWakeupReceiptParams{ID: dbid.NewV7(), WakeupID: w.ID, Revision: w.Revision, EventKey: "condition:" + now.UTC().Format(time.RFC3339Nano), EventType: wakeupConditionEventType, Payload: payload})
+	_, err := q.RecordWakeupReceipt(ctx, db.RecordWakeupReceiptParams{ID: dbid.NewV7(), WakeupID: w.ID, Revision: w.Revision, EventKey: key, EventType: wakeupConditionEventType, Payload: payload})
 	return err
 }

@@ -47,6 +47,8 @@ export interface IssueWorkflow {
   project_ids: string[];
   created_at: string;
   updated_at: string;
+  /** Fingerprint of the stored workflow definition; absent on older servers. */
+  definition_version?: string;
 }
 
 export interface ListIssueWorkflowsResponse {

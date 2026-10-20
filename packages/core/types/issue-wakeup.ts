@@ -54,6 +54,7 @@ export type WakeupCondition =
   | { type: "issue_field"; field: "property"; property_id: string; value: unknown }
   | { type: "children_done"; stage?: number | null }
   | { type: "pull_request"; event: "checks_finished" | "merged" }
+  | { type: "review_handoff"; handoff: { thread_id: string; sender_id: string; workflow_id: string; workflow_version: string; source_revision: string } }
   | { type: "other_issue"; issue_id: string; state: "done" | "ended" | "in_review"; identifier?: string };
 
 /** One run a rule started, for its trigger history. */

@@ -1,12 +1,42 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
 )
+
+func TestIssueWakeupCLIReadsScopedHandoffFilter(t *testing.T) {
+	t.Chdir(t.TempDir())
+	const filter = `{"thread_id":"thread","sender_id":"dev","workflow_id":"workflow","workflow_version":"version","source_revision":"revision"}`
+	if err := os.WriteFile("handoff.json", []byte(filter), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := newIssueWakeupCommand()
+	create, _, err := cmd.Find([]string{"create"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := create.ParseFlags([]string{"--until-handoff-file", "handoff.json"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := wakeupConditionFromFlags(context.Background(), create, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["type"] != "review_handoff" || string(got["handoff"].(json.RawMessage)) != filter {
+		t.Fatalf("filter changed: %+v", got)
+	}
+	if err := create.Flags().Set("until-status", "done"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wakeupConditionFromFlags(context.Background(), create, nil); err == nil {
+		t.Fatal("multiple conditions accepted")
+	}
+}
 
 func TestIssueWakeupCLIPreservesInstructionAndDuration(t *testing.T) {
 	t.Chdir(t.TempDir())

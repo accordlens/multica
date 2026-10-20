@@ -351,6 +351,12 @@ func (s *IssueWakeupService) reserveForRun(ctx context.Context, q *db.Queries, i
 // same agent, run as the same person, who may still use the agent. It returns
 // the instruction the run gets.
 func (s *IssueWakeupService) mayJoin(ctx context.Context, q *db.Queries, issue db.Issue, task db.AgentTaskQueue, w db.IssueWakeup) (string, bool, error) {
+	// A pinned review request needs its own frozen evidence and CheckClaim.
+	// Keep its receipts until the ordinary waiting run has started instead of
+	// adding source data to an unrelated prompt with a different work scope.
+	if isReviewHandoff(w.Condition) {
+		return "", false, nil
+	}
 	agent, err := q.GetAgentInWorkspace(ctx, db.GetAgentInWorkspaceParams{ID: task.AgentID, WorkspaceID: w.WorkspaceID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
