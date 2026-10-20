@@ -229,6 +229,36 @@ func TestRenewSessionToken_CarriesIdentityForward(t *testing.T) {
 	}
 }
 
+// The passkey presentation time is a fact about the login. Renewal must keep
+// it unchanged — dropping it would lock people out of passkey management,
+// and refreshing it would let a merely active session pass as a fresh one.
+func TestRenewSessionToken_KeepsPasskeyAuthTime(t *testing.T) {
+	presented := time.Now().Add(-time.Hour).Unix()
+	old := sessionClaims(t, time.Now().Add(24*time.Hour), "session-pk")
+	old[PasskeyAuthTimeClaim] = float64(presented)
+
+	token, _, err := RenewSessionToken(old)
+	if err != nil {
+		t.Fatalf("RenewSessionToken: %v", err)
+	}
+	next, err := ParseSessionToken(token)
+	if err != nil {
+		t.Fatalf("renewed token does not parse: %v", err)
+	}
+	if got := PasskeyAuthTime(next).Unix(); got != presented {
+		t.Fatalf("passkey auth time = %d, want %d", got, presented)
+	}
+
+	plain := sessionClaims(t, time.Now().Add(24*time.Hour), "session-plain")
+	token, _, err = RenewSessionToken(plain)
+	if err != nil {
+		t.Fatalf("RenewSessionToken: %v", err)
+	}
+	if next, _ := ParseSessionToken(token); !PasskeyAuthTime(next).IsZero() {
+		t.Fatal("renewal invented a passkey auth time")
+	}
+}
+
 // Sessions that predate MUL-7436 carry no `sid`. They must still renew — this
 // is the migration path for everyone logged in when this ships — and the
 // renewed token has to acquire one so its CSRF binding becomes stable.

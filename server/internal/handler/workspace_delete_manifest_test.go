@@ -101,6 +101,7 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"agent_mcp_server":                   workspaceDelete,
 	"workspace_mcp_server":               workspaceDelete,
 	"notification_preference":            workspaceDelete,
+	"passkey_enrollment_token":           workspaceDeleteKeep, // Account-level, not workspace-owned.
 	"personal_access_token":              workspaceDeleteKeep,
 	"pinned_item":                        workspaceDelete,
 	"plugin_installation":                workspaceDelete,
@@ -139,6 +140,8 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"vcs_connection":                     workspaceDelete,
 	"vcs_pull_request":                   workspaceDelete,
 	"verification_code":                  workspaceDeleteKeep,
+	"webauthn_challenge":                 workspaceDeleteKeep, // Account-level, not workspace-owned.
+	"webauthn_credential":                workspaceDeleteKeep, // Account-level, not workspace-owned.
 	"webhook_delivery":                   workspaceDelete,
 	"workspace":                          workspaceDelete,
 	"workspace_invitation":               workspaceDelete,

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"log/slog"
 	"math"
 	"net/http"
@@ -201,7 +202,11 @@ type RuntimeRecoveryNotifier interface {
 }
 
 type Handler struct {
-	Queries                *db.Queries
+	Queries *db.Queries
+	// Passkey is the WebAuthn relying party for passkey-only sign-in
+	// (MULTICA_PASSKEY_ONLY). Nil when the deployment keeps the upstream
+	// email-code / Google sign-in.
+	Passkey                *webauthn.WebAuthn
 	ReadSelector           *dbreader.Selector
 	DB                     dbExecutor
 	TxStarter              txStarter

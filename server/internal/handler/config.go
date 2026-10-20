@@ -25,6 +25,10 @@ type AppConfig struct {
 	// toggle signup or wire Google OAuth.
 	AllowSignup    bool   `json:"allow_signup"`
 	GoogleClientID string `json:"google_client_id,omitempty"`
+	// PasskeyOnly tells the login page that people sign in with a passkey
+	// and nothing else; the email-code and Google endpoints are not mounted.
+	// Omitted when false to keep the upstream response shape.
+	PasskeyOnly bool `json:"passkey_only,omitempty"`
 	// WorkspaceCreationDisabled mirrors the server-side
 	// DISABLE_WORKSPACE_CREATION env var so the UI can hide every
 	// "Create workspace" affordance on self-hosted instances. Omitted
@@ -117,6 +121,11 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		AllowSignup:                        os.Getenv("ALLOW_SIGNUP") != "false",
 		GoogleClientID:                     os.Getenv("GOOGLE_CLIENT_ID"),
 		WorkspaceCreationDisabled:          os.Getenv("DISABLE_WORKSPACE_CREATION") == "true",
+	}
+	if h.Passkey != nil {
+		config.PasskeyOnly = true
+		config.AllowSignup = false
+		config.GoogleClientID = ""
 	}
 	if h.Storage != nil {
 		config.CdnDomain = h.Storage.CdnDomain()
