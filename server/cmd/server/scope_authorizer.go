@@ -89,7 +89,13 @@ func (a *dbScopeAuthorizer) AuthorizeScope(ctx context.Context, userID, workspac
 			}
 			return issue.WorkspaceID == wsUUID, nil
 		}
-		return false, nil
+		// Quick-create and run-only autopilot tasks have no issue/chat. Retain
+		// their workspace delivery after ruling out protected conversation scope.
+		agent, err := a.q.GetAgent(ctx, task.AgentID)
+		if err != nil {
+			return scopeLookupErr(err)
+		}
+		return agent.WorkspaceID == wsUUID, nil
 	case realtime.ScopeChat:
 		uid, err := util.ParseUUID(userID)
 		if err != nil {

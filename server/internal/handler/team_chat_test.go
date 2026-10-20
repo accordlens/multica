@@ -76,6 +76,52 @@ func TestTeamChat_DeactivatedAndRemovedMember(t *testing.T) {
 	testutil.Call(t, testHandler.GetChatConversationV2, teamRequest(t, "GET", "/", peer, id)).Want(404)
 }
 
+func TestTeamChat_TaskTokenReadsUserFileBytes(t *testing.T) {
+	t.Setenv("LOCAL_UPLOAD_DIR", t.TempDir())
+	t.Setenv("LOCAL_UPLOAD_BASE_URL", "")
+	store := storage.NewLocalStorageFromEnv()
+	h := *testHandler
+	h.Storage = store
+	runtime := dbfx.Runtime(t, "user file")
+	agent := dbfx.Agent(t, "user file", runtime)
+	chat := createHandlerTestChatSession(t, agent)
+	task := dbfx.Task(t, agent, testutil.Cols{"chat_session_id": chat, "runtime_id": runtime, "status": "running"})
+	link, err := store.Upload(context.Background(), testWorkspaceID+"/"+uuid.NewString()+".txt", []byte("read user input"), "text/plain", "input.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	att := dbfx.Insert(t, "attachment", testutil.Cols{"workspace_id": testWorkspaceID, "chat_session_id": chat, "uploader_type": "member", "uploader_id": testUserID, "filename": "input.txt", "url": link, "content_type": "text/plain", "size_bytes": 15})
+	request := func() *http.Request {
+		r := teamRequest(t, "GET", "/", testUserID, chat)
+		chi.RouteContext(r.Context()).URLParams.Add("id", att)
+		r.Header.Set("X-Actor-Source", "task_token")
+		r.Header.Set("X-Task-ID", task)
+		r.Header.Set("X-Agent-ID", agent)
+		r.Header.Set("X-Workspace-ID", testWorkspaceID)
+		return r
+	}
+	for _, fn := range []http.HandlerFunc{h.GetAttachmentContent, h.DownloadAttachment} {
+		w := httptest.NewRecorder()
+		fn(w, request())
+		if w.Code != 200 || !strings.Contains(w.Body.String(), "read user input") {
+			t.Fatalf("user file unreadable: %d %s", w.Code, w.Body.String())
+		}
+	}
+	r := request()
+	r.Header.Set("Range", "bytes=0-3")
+	w := httptest.NewRecorder()
+	h.DownloadAttachment(w, r)
+	if w.Code != 206 || w.Body.String() != "read" {
+		t.Fatalf("user file range: %d %s", w.Code, w.Body.String())
+	}
+	other := createHandlerTestChatSession(t, agent)
+	dbfx.Exec(t, "UPDATE attachment SET chat_session_id=$1 WHERE id=$2", other, att)
+	testutil.Call(t, h.DownloadAttachment, request()).Want(404)
+	dbfx.Exec(t, "UPDATE attachment SET chat_session_id=$1 WHERE id=$2", chat, att)
+	dbfx.Exec(t, "UPDATE agent_task_queue SET status='completed' WHERE id=$1", task)
+	testutil.Call(t, h.DownloadAttachment, request()).Want(404)
+}
+
 func TestTeamChat_CancelRechecksACLAfterLock(t *testing.T) {
 	runtime := dbfx.Runtime(t, "Cancel lock ACL")
 	agent := dbfx.Agent(t, "Cancel lock ACL", runtime)

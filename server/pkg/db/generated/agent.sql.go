@@ -5437,11 +5437,18 @@ func (q *Queries) ListActiveTasksByIssueFamily(ctx context.Context, arg ListActi
 const listAgentTasks = `-- name: ListAgentTasks :many
 SELECT atq.id, atq.agent_id, atq.issue_id, atq.status, atq.priority, atq.dispatched_at, atq.started_at, atq.completed_at, atq.result, atq.error, atq.created_at, atq.context, atq.runtime_id, atq.session_id, atq.work_dir, atq.trigger_comment_id, atq.chat_session_id, atq.autopilot_run_id, atq.attempt, atq.max_attempts, atq.parent_task_id, atq.failure_reason, atq.trigger_summary, atq.force_fresh_session, atq.is_leader_task, atq.wait_reason, atq.initiator_user_id, atq.handoff_note, atq.prepare_lease_expires_at, atq.squad_id, atq.runtime_mcp_overlay, atq.escalation_for_task_id, atq.fire_at, atq.originator_user_id, atq.runtime_connected_apps, atq.coalesced_comment_ids, atq.delivered_comment_ids, atq.chat_input_task_id, atq.chat_finalize_deferred_at, atq.originator_source, atq.delegated_from_task_id, atq.retry_of_task_id, atq.rerun_of_task_id, atq.rule_version_id, atq.trigger_evidence_kind, atq.trigger_evidence_ref_id, atq.accountable_user_id, atq.session_rollout_missing, atq.retired_session_id, atq.quick_actions_disabled, atq.regenerate_quick_actions_for, atq.branch_name, atq.durable_work_dir, atq.channel_context_revision, atq.comment_thread_id, atq.cancelled_by_type, atq.cancelled_by_id, atq.cancelled_by_name, atq.issue_snapshot FROM agent_task_queue atq
 WHERE atq.agent_id = $1
+  -- Task credentials can read ordinary runs, plus their own live chat run.
+  -- Filter here, before LIMIT, so hidden chat runs cannot truncate a page.
+  AND ($2::uuid IS NULL
+    OR (atq.id=$2 AND atq.status IN ('queued','dispatched','running','waiting_local_directory','deferred'))
+    OR (atq.chat_session_id IS NULL AND NOT EXISTS (
+      SELECT 1 FROM chat_protected_task p WHERE p.task_id=atq.id AND p.is_private
+    )))
   AND ((atq.chat_session_id IS NULL AND NOT EXISTS (
       SELECT 1 FROM chat_protected_task p WHERE p.task_id=atq.id AND p.is_private
     )) OR EXISTS (
       SELECT 1 FROM chat_session s
-      JOIN member m ON m.workspace_id=s.workspace_id AND m.user_id = $2
+      JOIN member m ON m.workspace_id=s.workspace_id AND m.user_id = $3
       JOIN "user" u ON u.id=m.user_id AND u.deactivated_at IS NULL
       LEFT JOIN chat_participant p ON p.chat_session_id=s.id AND p.actor_id=m.user_id AND p.actor_type='member' AND p.revoked_at IS NULL
       WHERE s.id=COALESCE(atq.chat_session_id,(SELECT scope.chat_session_id FROM chat_protected_task scope WHERE scope.task_id=atq.id AND scope.is_private)) AND (s.kind='public_channel' OR (s.kind='agent_dm' AND s.creator_id=m.user_id AND p.actor_id IS NOT NULL) OR (s.kind IN ('private_channel','dm','self_dm','group_dm') AND p.actor_id IS NOT NULL))
@@ -5450,13 +5457,14 @@ WHERE atq.agent_id = $1
   -- Keep this predicate in sync with handler.visibleTaskHistory.
   AND NOT (escalation_for_task_id IS NOT NULL AND started_at IS NULL
            AND status IN ('deferred', 'cancelled'))
-  AND (atq.created_at, atq.id) < ($3::timestamptz, $4::uuid)
+  AND (atq.created_at, atq.id) < ($4::timestamptz, $5::uuid)
 ORDER BY atq.created_at DESC, atq.id DESC
-LIMIT $5
+LIMIT $6
 `
 
 type ListAgentTasksParams struct {
 	AgentID         pgtype.UUID        `json:"agent_id"`
+	ViewerTaskID    pgtype.UUID        `json:"viewer_task_id"`
 	ViewerUserID    pgtype.UUID        `json:"viewer_user_id"`
 	BeforeCreatedAt pgtype.Timestamptz `json:"before_created_at"`
 	BeforeID        pgtype.UUID        `json:"before_id"`
@@ -5466,6 +5474,7 @@ type ListAgentTasksParams struct {
 func (q *Queries) ListAgentTasks(ctx context.Context, arg ListAgentTasksParams) ([]AgentTaskQueue, error) {
 	rows, err := q.db.Query(ctx, listAgentTasks,
 		arg.AgentID,
+		arg.ViewerTaskID,
 		arg.ViewerUserID,
 		arg.BeforeCreatedAt,
 		arg.BeforeID,

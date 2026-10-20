@@ -144,7 +144,7 @@ func TestTeamChat_HTTPTaskTokenAndIdentitySpoof(t *testing.T) {
 	do("/api/chat/v2/conversations/"+other, token, 404)
 	otherTask := fx.Task(t, agent, testutil.Cols{"chat_session_id": other, "runtime_id": runtime})
 	do("/api/tasks/"+otherTask+"/messages", token, 404)
-	do("/api/agents/"+agent+"/tasks", token, 403)
+	do("/api/agents/"+agent+"/tasks", token, 200)
 	do("/api/agent-task-snapshot", token, 403)
 	do("/api/chat/sessions", token, 403)
 	do("/api/chat/pending-tasks", token, 403)

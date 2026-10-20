@@ -67,6 +67,7 @@ func TestAgentTaskHistoryIndexMigrationAndPagePlans(t *testing.T) {
 	assertIndexValidity(t, pool, schema, indexName, true)
 	for _, before := range []string{"'infinity'", "'2026-09-01T02:00:00Z'"} {
 		query := strings.NewReplacer(
+			"sqlc.narg(viewer_task_id)", "NULL",
 			"@viewer_user_id", "md5('viewer')::uuid",
 			"@agent_id", "md5('agent')::uuid",
 			"@before_created_at", before,

@@ -503,31 +503,12 @@ func (h *Hub) BroadcastToScopeDedup(scopeType, scopeID string, message []byte, e
 	key := sk(scopeType, scopeID)
 
 	h.mu.RLock()
-	clients := h.rooms[key]
-	var slow []*Client
-	var sent int64
-	for client := range clients {
-		if !h.canDeliver(client, message) {
-			continue
-		}
-		if !client.markSeen(eventID) {
-			continue
-		}
-		select {
-		case client.send <- message:
-			sent++
-		default:
-			slow = append(slow, client)
-		}
+	clients := make([]*Client, 0, len(h.rooms[key]))
+	for client := range h.rooms[key] {
+		clients = append(clients, client)
 	}
 	h.mu.RUnlock()
-
-	if sent > 0 {
-		M.MessagesSentTotal.Add(sent)
-	}
-	if len(slow) > 0 {
-		h.evictSlow(slow)
-	}
+	h.deliverClients(clients, message, "", eventID)
 }
 
 // fanoutAll delivers message to every connected client. If excludeWorkspace
@@ -540,33 +521,12 @@ func (h *Hub) fanoutAll(message []byte, excludeWorkspace string) {
 
 func (h *Hub) fanoutAllDedup(message []byte, excludeWorkspace, eventID string) {
 	h.mu.RLock()
-	var slow []*Client
-	var sent int64
+	clients := make([]*Client, 0, len(h.clients))
 	for client := range h.clients {
-		if excludeWorkspace != "" && client.workspaceID == excludeWorkspace {
-			continue
-		}
-		if !h.canDeliver(client, message) {
-			continue
-		}
-		if !client.markSeen(eventID) {
-			continue
-		}
-		select {
-		case client.send <- message:
-			sent++
-		default:
-			slow = append(slow, client)
-		}
+		clients = append(clients, client)
 	}
 	h.mu.RUnlock()
-
-	if sent > 0 {
-		M.MessagesSentTotal.Add(sent)
-	}
-	if len(slow) > 0 {
-		h.evictSlow(slow)
-	}
+	h.deliverClients(clients, message, excludeWorkspace, eventID)
 }
 
 // BroadcastToWorkspace is a back-compat shortcut.
@@ -594,17 +554,30 @@ func (h *Hub) Broadcast(message []byte) {
 func (h *Hub) fanoutUser(userID string, message []byte, excludeWorkspace, eventID string) {
 	key := sk(ScopeUser, userID)
 	h.mu.RLock()
-	clients := h.rooms[key]
+	clients := make([]*Client, 0, len(h.rooms[key]))
+	for client := range h.rooms[key] {
+		clients = append(clients, client)
+	}
+	h.mu.RUnlock()
+	h.deliverClients(clients, message, excludeWorkspace, eventID)
+}
+
+// ACL reads can block on the database. Keep them outside the hub lock, then
+// briefly lock again so a disconnected client's closed queue cannot be used.
+// The socket writer independently rechecks authorization before sending bytes.
+func (h *Hub) deliverClients(clients []*Client, message []byte, excludeWorkspace, eventID string) {
 	var slow []*Client
 	var sent int64
-	for client := range clients {
+	for _, client := range clients {
 		if excludeWorkspace != "" && client.workspaceID == excludeWorkspace {
 			continue
 		}
 		if !h.canDeliver(client, message) {
 			continue
 		}
-		if !client.markSeen(eventID) {
+		h.mu.RLock()
+		if !h.clients[client] || !client.markSeen(eventID) {
+			h.mu.RUnlock()
 			continue
 		}
 		select {
@@ -613,8 +586,8 @@ func (h *Hub) fanoutUser(userID string, message []byte, excludeWorkspace, eventI
 		default:
 			slow = append(slow, client)
 		}
+		h.mu.RUnlock()
 	}
-	h.mu.RUnlock()
 	if sent > 0 {
 		M.MessagesSentTotal.Add(sent)
 	}

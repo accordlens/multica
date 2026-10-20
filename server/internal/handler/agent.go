@@ -2727,7 +2727,16 @@ func (h *Handler) ListAgentTasks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var viewerTaskID pgtype.UUID
+	if r.Header.Get("X-Actor-Source") == "task_token" {
+		var ok bool
+		viewerTaskID, ok = parseUUIDOrBadRequest(w, r.Header.Get("X-Task-ID"), "task id")
+		if !ok {
+			return
+		}
+	}
 	tasks, err := h.Queries.ListAgentTasks(r.Context(), db.ListAgentTasksParams{
+		ViewerTaskID: viewerTaskID,
 		ViewerUserID: parseUUID(requestUserID(r)), AgentID: agent.ID, BeforeCreatedAt: beforeCreatedAt, BeforeID: beforeID,
 		PageLimit: int32(limit + 1),
 	})

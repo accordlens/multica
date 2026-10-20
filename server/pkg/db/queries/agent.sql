@@ -288,6 +288,13 @@ RETURNING *;
 -- name: ListAgentTasks :many
 SELECT atq.* FROM agent_task_queue atq
 WHERE atq.agent_id = @agent_id
+  -- Task credentials can read ordinary runs, plus their own live chat run.
+  -- Filter here, before LIMIT, so hidden chat runs cannot truncate a page.
+  AND (sqlc.narg(viewer_task_id)::uuid IS NULL
+    OR (atq.id=sqlc.narg(viewer_task_id) AND atq.status IN ('queued','dispatched','running','waiting_local_directory','deferred'))
+    OR (atq.chat_session_id IS NULL AND NOT EXISTS (
+      SELECT 1 FROM chat_protected_task p WHERE p.task_id=atq.id AND p.is_private
+    )))
   AND ((atq.chat_session_id IS NULL AND NOT EXISTS (
       SELECT 1 FROM chat_protected_task p WHERE p.task_id=atq.id AND p.is_private
     )) OR EXISTS (

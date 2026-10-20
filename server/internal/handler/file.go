@@ -1162,7 +1162,7 @@ func (w *chatAttachmentWriter) Write(p []byte) (int, error) {
 	}
 	if r.Header.Get("X-Actor-Source") == "task_token" {
 		task, err := h.Queries.GetAgentTask(r.Context(), parseUUID(r.Header.Get("X-Task-ID")))
-		if err != nil || task.ChatSessionID != session || att.TaskID != task.ID || uuidToString(task.AgentID) != r.Header.Get("X-Agent-ID") || isTerminalTaskStatus(task.Status) {
+		if err != nil || task.ChatSessionID != session || uuidToString(task.AgentID) != r.Header.Get("X-Agent-ID") || isTerminalTaskStatus(task.Status) {
 			return 0, chataccess.ErrInvisible
 		}
 	}

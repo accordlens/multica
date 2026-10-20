@@ -5838,10 +5838,6 @@ func (h *Handler) ListTaskMessagesByUser(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if r.Header.Get("X-Actor-Source") == "task_token" && uuidToString(taskUUID) != r.Header.Get("X-Task-ID") {
-		writeError(w, http.StatusNotFound, "task not found")
-		return
-	}
 	task, err := h.Queries.GetAgentTask(r.Context(), taskUUID)
 	if err != nil {
 		if !isNotFound(err) {
@@ -5876,6 +5872,10 @@ func (h *Handler) ListTaskMessagesByUser(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if conversation.Valid {
+		if r.Header.Get("X-Actor-Source") == "task_token" && uuidToString(taskUUID) != r.Header.Get("X-Task-ID") {
+			writeError(w, http.StatusNotFound, "task not found")
+			return
+		}
 		if _, ok := h.authorizeChatRequest(w, r, parseUUID(wsID), conversation); !ok {
 			return
 		}

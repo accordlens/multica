@@ -84,10 +84,6 @@ func (h *Handler) authorizeChatAttachment(w http.ResponseWriter, r *http.Request
 	if _, ok := h.authorizeChatRequest(w, r, att.WorkspaceID, session); !ok {
 		return false
 	}
-	if r.Header.Get("X-Actor-Source") == "task_token" && uuidToString(att.TaskID) != r.Header.Get("X-Task-ID") {
-		writeError(w, http.StatusNotFound, "attachment not found")
-		return false
-	}
 	w.Header().Set("Cache-Control", "private, no-store")
 	return true
 }
