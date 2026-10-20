@@ -138,13 +138,16 @@ func (h *Hub) stopClient(client *Client, notice []byte, deadline time.Time) {
 			_ = client.conn.WriteMessage(websocket.TextMessage, notice)
 			client.writeMu.Unlock()
 		}
-		client.conn.Close()
 	}
+	// Drop every subscription before the peer can observe transport closure.
 	h.removeClient(client)
 	client.closeSend() // a writer may stop before registration completes
 	for range client.send {
 		// Discard queued content, including frames whose writer is doing a
 		// membership lookup concurrently. The writer also checks stopped.
+	}
+	if client.conn != nil {
+		client.conn.Close()
 	}
 }
 
