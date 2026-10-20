@@ -208,7 +208,7 @@ export async function run(cwd) {
     do { env.FRONTEND_PORT = String(await freePort()); } while (env.FRONTEND_PORT === env.PORT);
     env.FRONTEND_ORIGIN = `http://localhost:${env.FRONTEND_PORT}`;
     Object.assign(env, {
-      NEXT_PUBLIC_API_URL: `http://localhost:${env.PORT}`, NEXT_PUBLIC_WS_URL: `ws://localhost:${env.PORT}/ws`,
+      REMOTE_API_URL: `http://localhost:${env.PORT}`, NEXT_PUBLIC_API_URL: "", NEXT_PUBLIC_WS_URL: `ws://localhost:${env.PORT}/ws`,
       MULTICA_PUBLIC_URL: `http://localhost:${env.PORT}`, MULTICA_APP_URL: env.FRONTEND_ORIGIN,
       PLAYWRIGHT_BASE_URL: env.FRONTEND_ORIGIN, LOCAL_UPLOAD_BASE_URL: `http://localhost:${env.PORT}`,
       JWT_SECRET: "local-ci-synthetic-jwt-secret-at-least-32-characters", APP_ENV: "development", DO_NOT_TRACK: "true",
@@ -232,9 +232,9 @@ export async function run(cwd) {
             report.toolchain.goTestImage = docker("image", "inspect", "--format", "{{.Id}}", image);
             entry.exitCode = await execute(source, ["docker", "run", "--cidfile", goContainerFile, "--network", network,
               "--volume", `${source}:/src`, "--volume", "multica-local-ci-gomod:/go/pkg/mod",
-              "--volume", "multica-local-ci-gobuild:/root/.cache/go-build",
+              "--volume", "multica-local-ci-gobuild:/tmp/go-build",
               "--env", "DATABASE_URL=postgres://multica:local-ci@pg:5432/multica_ci?sslmode=disable",
-              "--env", "REDIS_TEST_URL=redis://redis:6379/1", "--env", "GOMAXPROCS=4", image, ...argv], gateEnv, logfile);
+              "--env", "REDIS_TEST_URL=redis://redis:6379/1", "--env", "GOMAXPROCS=4", report.toolchain.goTestImage, ...argv], gateEnv, logfile);
           }
         } else entry.exitCode = name === "e2e" ? await e2e(source, gateEnv, logfile) : await execute(source, argv, gateEnv, logfile);
       }

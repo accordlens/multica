@@ -6,7 +6,6 @@ const ROUTE_CHANGE_TIMEOUT = 30000;
 test.describe("Navigation", () => {
   test.beforeEach(async ({ page }) => {
     await loginAsDefault(page);
-    await page.waitForLoadState("networkidle");
   });
 
   test("sidebar navigation works", async ({ page }) => {

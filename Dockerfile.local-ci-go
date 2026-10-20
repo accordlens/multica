@@ -1,8 +1,17 @@
 FROM node:22-bookworm AS node
-FROM golang:1.26.9-bookworm
+FROM golang:1.26.9-trixie
 
 # Default Go tests include fake Node-backed CLI fixtures, never real providers.
+# Trixie's Git supports merge-tree --merge-base (requires Git >= 2.40).
 COPY --from=node /usr/local/ /usr/local/
-RUN git config --system --add safe.directory /src
+RUN git config --system --add safe.directory /src \
+    && useradd --create-home --uid 1000 ci \
+    && command -v runuser \
+    && printf '%s\n' '#!/bin/sh' 'set -eu' \
+       'mkdir -p /go/pkg/mod /tmp/go-build' \
+       'chown -R ci:ci /go/pkg/mod /tmp/go-build' \
+       'exec runuser -u ci -- "$@"' > /usr/local/bin/local-ci-go \
+    && chmod +x /usr/local/bin/local-ci-go
 WORKDIR /src
-ENV GIT_CONFIG_GLOBAL=/dev/null
+ENV GIT_CONFIG_GLOBAL=/dev/null GOCACHE=/tmp/go-build
+ENTRYPOINT ["local-ci-go"]

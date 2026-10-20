@@ -32,7 +32,8 @@ PostgreSQL and Redis containers on random loopback ports, and executes:
 - Mobile typecheck, lint and unit tests, separately from root frontend tasks.
 - SQLC regeneration with a drift check; Go race build and tagged integration vet.
 - All default Go tests with race detection and fresh results in a local Linux
-  container with pinned Go/Node, serial within each package. Its isolated process
+  container with pinned Go/Node and Git >= 2.40, as a non-root user, serial within
+  each package. Its isolated process
   namespace avoids host process-scan timing failures on busy developer machines.
 - Go vulnerability scanning against the current vulnerability database.
 - Playwright against app processes and synthetic data owned by this run.
