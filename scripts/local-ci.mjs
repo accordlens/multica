@@ -6,13 +6,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const shellGate = (name) => ["bash", "scripts/local-ci-checks.sh", name];
-const turboGate = (task, filter) => ["pnpm", "exec", "turbo", task, `--filter=${filter}`, "--force", "--concurrency=2", "--env-mode=loose"];
+const turboGate = (task, filter, concurrency = 2) => ["pnpm", "exec", "turbo", task, `--filter=${filter}`, "--force", `--concurrency=${concurrency}`, "--env-mode=loose"];
 export const gates = [
   ["scripts", shellGate("scripts")],
   ["frontend-typecheck", turboGate("typecheck", "!@multica/mobile")],
   ["frontend-lint", turboGate("lint", "!@multica/mobile")],
   ["frontend-test", turboGate("test", "!@multica/mobile")],
-  ["frontend-build", turboGate("build", "!@multica/mobile")],
+  ["frontend-build", turboGate("build", "!@multica/mobile", 1)],
   ["mobile-typecheck", turboGate("typecheck", "@multica/mobile")],
   ["mobile-lint", turboGate("lint", "@multica/mobile")],
   ["mobile-test", turboGate("test", "@multica/mobile")],

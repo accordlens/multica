@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import { config } from "dotenv";
 import { resolve } from "path";
+import { availableParallelism } from "node:os";
 import {
   resolveDevDocsUrl,
   resolveDevRemoteApiUrl,
@@ -39,6 +40,10 @@ const allowedDevOrigins = process.env.CORS_ALLOWED_ORIGINS
   : undefined;
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // Match Next's one-CPU reserve to affinity, rather than the host CPU count.
+    cpus: Math.max(1, availableParallelism() - 1),
+  },
   ...(process.env.STANDALONE === "true" ? { output: "standalone" as const } : {}),
   transpilePackages: ["@multica/core", "@multica/ui", "@multica/views"],
   ...(allowedDevOrigins && allowedDevOrigins.length > 0

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "sh -c 'next dev --webpack --port \"${FRONTEND_PORT:-3000}\"'",
-    "build": "next build --webpack",
+    "build": "node --max-old-space-size=4096 node_modules/next/dist/bin/next build --webpack",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
