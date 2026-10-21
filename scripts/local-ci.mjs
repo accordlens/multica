@@ -226,7 +226,7 @@ export async function run(cwd) {
       const gateEnv = ["scripts", "selfhost"].includes(name) ? { ...testEnvironment(), TMPDIR: env.TMPDIR } : env;
       try {
         if (name === "backend-test") {
-          const image = "multica-local-ci-go:1.26.9";
+          const image = "multica-local-ci-go:1.26.10";
           entry.exitCode = await execute(source, ["docker", "build", "--file", "Dockerfile.local-ci-go", "--tag", image, "."], gateEnv, logfile);
           if (entry.exitCode === 0) {
             report.toolchain.goTestImage = docker("image", "inspect", "--format", "{{.Id}}", image);
