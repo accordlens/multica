@@ -215,6 +215,8 @@ export function useWakeupText() {
   // "waiting for it" for cards and the header.
   const conditionParts = (c: WakeupCondition) => {
     switch (c.type) {
+      case "review_handoff":
+        return { key: "review_handoff" as const, values: { revision: c.handoff.source_revision.slice(0, 12) } };
       case "issue_field":
         switch (c.field) {
           case "status":

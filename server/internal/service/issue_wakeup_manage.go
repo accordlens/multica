@@ -66,6 +66,9 @@ func (s *IssueWakeupService) Trigger(ctx context.Context, issueID, id, member pg
 	if err != nil {
 		return err
 	}
+	if isReviewHandoff(w.Condition) {
+		return fmt.Errorf("%w: handoff routing requires a matching request; explicitly update the subscription to retry", ErrWakeupInput)
+	}
 	active, err := wakeupIssueActive(ctx, q, issue)
 	if err != nil {
 		return err

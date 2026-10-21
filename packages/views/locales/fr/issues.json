@@ -1346,6 +1346,7 @@
       "paused": "En pause : {{reason}}"
     },
     "cond": {
+      "review_handoff": "Quand une revue est demandée pour {{revision}}",
       "status": "Quand cette tâche passe à {{status}}",
       "assignee": "Quand cette tâche est attribuée à {{name}}",
       "label": "Quand cette tâche reçoit le libellé {{label}}",
@@ -1364,6 +1365,7 @@
       "unchecked": "décochée"
     },
     "wait": {
+      "review_handoff": "En attente d’une demande de revue pour {{revision}}",
       "reply_from": "Attend la réponse de {{name}}",
       "reply_any": "Attend une réponse",
       "run_end": "Attend la fin de l’exécution de {{agent}}",

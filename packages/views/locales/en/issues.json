@@ -1346,6 +1346,7 @@
       "paused": "Paused: {{reason}}"
     },
     "cond": {
+      "review_handoff": "When review is requested for {{revision}}",
       "status": "When this issue moves to {{status}}",
       "assignee": "When this issue is assigned to {{name}}",
       "label": "When this issue gets the label {{label}}",
@@ -1364,6 +1365,7 @@
       "unchecked": "unchecked"
     },
     "wait": {
+      "review_handoff": "Waiting for a review request for {{revision}}",
       "reply_from": "Waiting for {{name}} to reply",
       "reply_any": "Waiting for a reply",
       "run_end": "Waiting for {{agent}}'s run",

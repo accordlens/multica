@@ -148,6 +148,14 @@ func (s *IssueWakeupService) Validate(in *WakeupInput, now time.Time) (pgtype.Ti
 	if hasWakeupCondition(in.Condition) && in.Kind != "event" {
 		return bad("conditions use kind event")
 	}
+	if isReviewHandoff(in.Condition) {
+		if err := handoffSubscriptionInput(in, handoffCondition(in.Condition)); err != nil {
+			return pgtype.Timestamptz{}, err
+		}
+		if in.ExpiresAt != nil && in.ExpiresAt.Sub(now) > 72*time.Hour {
+			return bad("handoff deadline must be within 72h")
+		}
+	}
 	switch in.Kind {
 	case "event":
 		if hasWakeupCondition(in.Condition) {
@@ -452,6 +460,18 @@ func (s *IssueWakeupService) save(ctx context.Context, issueID, member, source, 
 			return out, e
 		}
 		condition, in.EventTypes = normalized, hints
+		if isReviewHandoff(condition) {
+			var duplicate bool
+			err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM issue_wakeup WHERE issue_id=$1 AND workspace_id=$2
+				AND agent_id=$3 AND condition=$4::jsonb AND disabled_at IS NULL AND ($5::uuid IS NULL OR id<>$5))`,
+				issue.ID, issue.WorkspaceID, in.AgentID, condition, existingID).Scan(&duplicate)
+			if err != nil {
+				return out, err
+			}
+			if duplicate {
+				return out, fmt.Errorf("%w: this handoff subscription already exists; inspect or explicitly update it", ErrWakeupConflict)
+			}
+		}
 		// The scheduler evaluates the condition on its first tick.
 		next = pgtype.Timestamptz{Time: now, Valid: true}
 	}
@@ -1478,5 +1498,11 @@ func (s *IssueWakeupService) CheckClaim(ctx context.Context, task db.AgentTaskQu
 	if err != nil {
 		return err
 	}
-	return s.authorize(ctx, s.Tasks.Queries, w.WorkspaceID, w.CreatedBy, agent)
+	if err := s.authorize(ctx, s.Tasks.Queries, w.WorkspaceID, w.CreatedBy, agent); err != nil {
+		return err
+	}
+	if isReviewHandoff(w.Condition) {
+		return s.checkHandoffClaim(ctx, task, w)
+	}
+	return nil
 }

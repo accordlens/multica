@@ -1301,6 +1301,7 @@
       "paused": "一時停止中：{{reason}}"
     },
     "cond": {
+      "review_handoff": "{{revision}} のレビューが依頼されたとき",
       "status": "ステータスが{{status}}になったとき",
       "assignee": "担当者が {{name}} になったとき",
       "label": "ラベル {{label}} が付いたとき",
@@ -1319,6 +1320,7 @@
       "unchecked": "オフ"
     },
     "wait": {
+      "review_handoff": "{{revision}} のレビュー依頼を待機中",
       "reply_from": "{{name}} の返信待ち",
       "reply_any": "返信待ち",
       "run_end": "{{agent}} の実行終了待ち",

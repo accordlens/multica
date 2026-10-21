@@ -1301,6 +1301,7 @@
       "paused": "일시 중지됨: {{reason}}"
     },
     "cond": {
+      "review_handoff": "{{revision}} 검토가 요청되면",
       "status": "상태가 {{status}}(으)로 바뀌면",
       "assignee": "담당자가 {{name}}(으)로 바뀌면",
       "label": "{{label}} 레이블이 붙으면",
@@ -1319,6 +1320,7 @@
       "unchecked": "선택 안 됨"
     },
     "wait": {
+      "review_handoff": "{{revision}} 검토 요청 대기",
       "reply_from": "{{name}}의 답글 대기",
       "reply_any": "답글 대기",
       "run_end": "{{agent}} 실행 종료 대기",

@@ -573,6 +573,7 @@ export const IssueWorkflowSchema = z.object({
   project_ids: z.array(z.string()).default([]),
   created_at: z.string(),
   updated_at: z.string(),
+  definition_version: z.string().regex(/^[a-f0-9]{64}$/).optional().catch(undefined),
 }).loose();
 
 export const ListIssueWorkflowsResponseSchema = z.object({
@@ -3712,6 +3713,10 @@ export const EMPTY_JOIN_SHARE_LINK_RESPONSE: {
 };
 
 export const WakeupConditionSchema = z.union([
+  z.object({ type: z.literal("review_handoff"), handoff: z.object({
+    thread_id: z.string().uuid(), sender_id: z.string().uuid(), workflow_id: z.string().uuid(),
+    workflow_version: z.string().regex(/^[a-f0-9]{64}$/), source_revision: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/),
+  }) }),
   z.object({ type: z.literal("issue_field"), field: z.literal("status"), value: z.string() }),
   z.object({ type: z.literal("issue_field"), field: z.literal("assignee"), assignee_type: z.enum(["member", "agent", "squad"]), assignee_id: z.string() }),
   z.object({ type: z.literal("issue_field"), field: z.literal("label"), label_id: z.string() }),

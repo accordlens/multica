@@ -1301,6 +1301,7 @@
       "paused": "已暂停：{{reason}}"
     },
     "cond": {
+      "review_handoff": "当有人请求审查 {{revision}} 时",
       "status": "当状态变为{{status}}时",
       "assignee": "当负责人变为 {{name}} 时",
       "label": "当加上标签 {{label}} 时",
@@ -1319,6 +1320,7 @@
       "unchecked": "未勾选"
     },
     "wait": {
+      "review_handoff": "等待 {{revision}} 的审查请求",
       "reply_from": "等 {{name}} 回复",
       "reply_any": "等回复",
       "run_end": "等 {{agent}} 的运行结束",

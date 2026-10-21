@@ -73,15 +73,16 @@ type IssueWorkflowStepPayload struct {
 }
 
 type IssueWorkflowResponse struct {
-	ID          string                     `json:"id"`
-	WorkspaceID string                     `json:"workspace_id"`
-	Name        string                     `json:"name"`
-	Description string                     `json:"description"`
-	IsDefault   bool                       `json:"is_default"`
-	Steps       []IssueWorkflowStepPayload `json:"steps"`
-	ProjectIDs  []string                   `json:"project_ids"`
-	CreatedAt   string                     `json:"created_at"`
-	UpdatedAt   string                     `json:"updated_at"`
+	ID                string                     `json:"id"`
+	WorkspaceID       string                     `json:"workspace_id"`
+	Name              string                     `json:"name"`
+	Description       string                     `json:"description"`
+	IsDefault         bool                       `json:"is_default"`
+	Steps             []IssueWorkflowStepPayload `json:"steps"`
+	ProjectIDs        []string                   `json:"project_ids"`
+	CreatedAt         string                     `json:"created_at"`
+	UpdatedAt         string                     `json:"updated_at"`
+	DefinitionVersion string                     `json:"definition_version"`
 }
 
 // StatusMappingRequirement names a status some issues are on that the target
@@ -134,16 +135,18 @@ func issueWorkflowToResponse(row db.IssueWorkflow, def issueworkflow.Definition,
 	for i, s := range def.Steps {
 		steps[i] = stepToPayload(s)
 	}
+	version, _ := issueworkflow.DefinitionVersion(row.Steps)
 	return IssueWorkflowResponse{
-		ID:          uuidToString(row.ID),
-		WorkspaceID: uuidToString(row.WorkspaceID),
-		Name:        row.Name,
-		Description: row.Description,
-		IsDefault:   row.IsDefault,
-		Steps:       steps,
-		ProjectIDs:  projectIDs,
-		CreatedAt:   timestampToString(row.CreatedAt),
-		UpdatedAt:   timestampToString(row.UpdatedAt),
+		ID:                uuidToString(row.ID),
+		WorkspaceID:       uuidToString(row.WorkspaceID),
+		Name:              row.Name,
+		Description:       row.Description,
+		IsDefault:         row.IsDefault,
+		Steps:             steps,
+		ProjectIDs:        projectIDs,
+		CreatedAt:         timestampToString(row.CreatedAt),
+		UpdatedAt:         timestampToString(row.UpdatedAt),
+		DefinitionVersion: version,
 	}
 }
 
