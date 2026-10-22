@@ -1,5 +1,5 @@
 FROM node:22-bookworm AS node
-FROM golang:1.26.9-trixie
+FROM golang:1.26.10-trixie
 
 # Default Go tests include fake Node-backed CLI fixtures, never real providers.
 # Trixie's Git supports merge-tree --merge-base (requires Git >= 2.40).

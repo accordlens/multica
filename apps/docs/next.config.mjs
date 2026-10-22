@@ -1,9 +1,14 @@
 import { createMDX } from "fumadocs-mdx/next";
+import { availableParallelism } from "node:os";
 
 const withMDX = createMDX();
 
 /** @type {import('next').NextConfig} */
 const config = {
+  experimental: {
+    // Match Next's one-CPU reserve to affinity, rather than the host CPU count.
+    cpus: Math.max(1, availableParallelism() - 1),
+  },
   reactStrictMode: true,
   basePath: "/docs",
   // Visiting http://host/ (outside basePath) would otherwise 404 — redirect
