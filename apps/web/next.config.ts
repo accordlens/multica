@@ -43,6 +43,8 @@ const nextConfig: NextConfig = {
   experimental: {
     // Match Next's one-CPU reserve to affinity, rather than the host CPU count.
     cpus: Math.max(1, availableParallelism() - 1),
+    // Fumadocs adds webpack config; release compilation memory before typechecking.
+    webpackBuildWorker: true,
   },
   ...(process.env.STANDALONE === "true" ? { output: "standalone" as const } : {}),
   transpilePackages: ["@multica/core", "@multica/ui", "@multica/views"],

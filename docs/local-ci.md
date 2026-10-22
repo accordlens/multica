@@ -52,6 +52,8 @@ Frontend builds run serially so the web build's 4 GiB V8 heap does not compete
 with another Next.js build. Both Next.js builds size their worker pools from
 process affinity, keeping Next's one-CPU reserve. Under a CPU quota, align
 process affinity with that quota so test and build workers see the available CPUs.
+The web build explicitly enables Next's Webpack build worker with the Fumadocs
+configuration so compilation memory is released before typechecking.
 Linux Go module/build cache volumes remain for subsequent runs. Next's generated
 route-type shims are restored after production builds in the disposable clone;
 the developer's checkout is never rewritten.
