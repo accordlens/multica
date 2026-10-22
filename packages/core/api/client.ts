@@ -257,6 +257,7 @@ import { parseWithFallback } from "./schema";
 import {
   RuntimeProfileSchema,
   RuntimeProfileListSchema,
+  ChatCapabilitiesSchema,
   AgentTaskListSchema,
   AgentTaskPageSchema,
   AgentActivityBucketListSchema,
@@ -4040,6 +4041,11 @@ export class ApiClient {
   // Callers must only reach for this once the metadata refresh has shown
   // there is no signed URL: in the other modes the endpoint 302s to storage,
   // where CORS is not configured for a JS fetch.
+  async getChatCapabilities() {
+    const raw=await this.fetch<unknown>("/api/chat/v2/capabilities");
+    return parseWithFallback(raw,ChatCapabilitiesSchema,null,{endpoint:"GET /api/chat/v2/capabilities"});
+  }
+
   async getAttachmentBlob(id: string): Promise<Blob> {
     const res = await this.fetchRaw(`/api/attachments/${id}/download`);
     return res.blob();

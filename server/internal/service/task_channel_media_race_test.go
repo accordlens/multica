@@ -25,6 +25,8 @@ import (
 // LinkUnownedChannelChatMessagesToTask — the READ COMMITTED window where the
 // seal sees a message the deadline read did not.
 type raceInjectTxStarter struct {
+	injectTx func(pgx.Tx)
+
 	pool   *pgxpool.Pool
 	inject func()
 }
@@ -34,10 +36,12 @@ func (s *raceInjectTxStarter) Begin(ctx context.Context) (pgx.Tx, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &raceInjectTx{Tx: tx, inject: s.inject}, nil
+	return &raceInjectTx{Tx: tx, inject: s.inject, injectTx: s.injectTx}, nil
 }
 
 type raceInjectTx struct {
+	injectTx func(pgx.Tx)
+
 	pgx.Tx
 	inject func()
 }
@@ -70,6 +74,10 @@ func (t *failNamedExecTx) Exec(ctx context.Context, sql string, args ...any) (pg
 }
 
 func (t *raceInjectTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	if strings.Contains(sql, "LinkUnownedChannelChatMessagesToTask") && t.injectTx != nil {
+		t.injectTx(t.Tx)
+		t.injectTx = nil
+	}
 	if strings.Contains(sql, "LinkUnownedChannelChatMessagesToTask") && t.inject != nil {
 		t.inject()
 		t.inject = nil
@@ -281,11 +289,11 @@ func TestEnqueueChannelChatTask_AllowsMatchingRetiredRouteForPendingInput(t *tes
 	}
 }
 
-// TestEnqueueChatTaskDefersWhenMediaMessageCommitsDuringEnqueue pins the fix
-// for the enqueue-vs-append race: a media-pending message sealed into the task
-// after the deadline read must still leave the task deferred (not claimable)
+// TestEnqueueChatTaskDefersWhenMediaIsAddedInLockedInputBatch pins the fix
+// for a media-pending message added in the locked transaction after the
+// deadline read: the sealed task must still remain deferred (not claimable)
 // until its media binds or the persisted deadline expires.
-func TestEnqueueChatTaskDefersWhenMediaMessageCommitsDuringEnqueue(t *testing.T) {
+func TestEnqueueChatTaskDefersWhenMediaIsAddedInLockedInputBatch(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
@@ -312,10 +320,10 @@ func TestEnqueueChatTaskDefersWhenMediaMessageCommitsDuringEnqueue(t *testing.T)
 	var mediaMessageID string
 	svc := &TaskService{
 		Queries: q,
-		TxStarter: &raceInjectTxStarter{pool: pool, inject: func() {
-			// A concurrent Handle appends an image message (with its media
-			// marker) and commits — after the deadline read, before the seal.
-			if err := pool.QueryRow(ctx, `
+		TxStarter: &raceInjectTxStarter{pool: pool, injectTx: func(tx pgx.Tx) {
+			// A writer within the locked batch appends media after the deadline
+			// read. Independent writers now wait behind sequence allocation.
+			if err := tx.QueryRow(ctx, `
 				INSERT INTO chat_message (chat_session_id, role, content, channel_media_pending_until)
 				VALUES ($1, 'user', '[Image]', $2) RETURNING id`, chatSessionID, deadline).Scan(&mediaMessageID); err != nil {
 				t.Errorf("inject media message: %v", err)
@@ -370,26 +378,11 @@ func TestEnqueueChatTaskDefersWhenMediaMessageCommitsDuringEnqueue(t *testing.T)
 	}
 }
 
-// TestEnqueueChatTaskLocksOutAConcurrentArchiveButNotInboundMessages is the
-// other half of the archive guard, and it is about the lock MODE rather than
-// the status check.
-//
-// The handler-side test covers archive-then-flush: the archive has committed,
-// so the re-read under the lock sees 'archived' and the enqueue refuses. This
-// one covers the overlap — an archive arriving while an enqueue is mid-flight.
-// It must not be able to slip past: if it committed inside our transaction its
-// cancel would run against a task row that does not exist yet, and the enqueue
-// would go on to commit that row onto a closed conversation. So the archive has
-// to block on the lock, come through afterwards, and cancel what it then sees.
-//
-// The same transaction must NOT block the room's next message. Every inbound
-// message is an INSERT into chat_message, FK'd to this chat_session, so it takes
-// FOR KEY SHARE on the row we hold — and FOR UPDATE (what the send, delete and
-// draft paths take) conflicts with exactly that. Under FOR UPDATE a group's
-// next message would wait for the previous message's enqueue to finish. Both
-// halves are asserted from inside the enqueue transaction, which is the only
-// moment either is observable.
-func TestEnqueueChatTaskLocksOutAConcurrentArchiveButNotInboundMessages(t *testing.T) {
+// C2 gives every canonical message a per-conversation sequence. Independent
+// appends and archives both wait behind enqueue's conversation lock; media
+// appended after commit is handled by the next flush, without entering the
+// preceding task's immutable input batch.
+func TestEnqueueChatTaskSerializesArchiveAndInboundMessages(t *testing.T) {
 	pool := newResolveOriginatorPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
@@ -441,8 +434,15 @@ func TestEnqueueChatTaskLocksOutAConcurrentArchiveButNotInboundMessages(t *testi
 	if !isLockTimeout(archiveErr) {
 		t.Fatalf("an archive landing mid-enqueue got %v, want to be blocked on the chat_session lock — it would otherwise commit while this task row is still invisible, cancel nothing, and leave a queued turn on a closed conversation", archiveErr)
 	}
-	if appendErr != nil {
-		t.Fatalf("the room's next message could not be appended during an enqueue: %v — inbound ingestion must not wait behind the debounced flush of the message before it", appendErr)
+	if !isLockTimeout(appendErr) {
+		t.Fatalf("canonical append must wait for the conversation sequence lock: %v", appendErr)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO chat_message(chat_session_id,role,content,channel_ingested) VALUES($1,'user','second',TRUE)`, chatSessionID); err != nil {
+		t.Fatal(err)
+	}
+	var owner pgtype.UUID
+	if err := pool.QueryRow(ctx, `SELECT task_id FROM chat_message WHERE chat_session_id=$1 AND content='second'`, chatSessionID).Scan(&owner); err != nil || owner.Valid {
+		t.Fatalf("late message entered prior immutable batch: %v %v", owner, err)
 	}
 }
 

@@ -168,7 +168,15 @@ func TeardownRuntime(ctx context.Context, qtx *db.Queries, runtimeID pgtype.UUID
 // pruneRuntimeSystemAgentChatDraftRestores removes rows without a database FK
 // before the system agents and their chat sessions cascade away.
 func pruneRuntimeSystemAgentChatDraftRestores(ctx context.Context, q *db.Queries, runtimeID pgtype.UUID) error {
-	if _, err := q.LockChatSessionsBySystemRuntimeAgents(ctx, runtimeID); err != nil {
+	sessions, err := q.LockChatSessionsBySystemRuntimeAgents(ctx, runtimeID)
+	if err != nil {
+		return err
+	}
+	ids := make([]pgtype.UUID, len(sessions))
+	for i, s := range sessions {
+		ids[i] = s
+	}
+	if err := q.PruneTeamChatState(ctx, ids); err != nil {
 		return err
 	}
 	if err := q.DeleteChatDraftRestoresBySystemRuntimeAgents(ctx, runtimeID); err != nil {

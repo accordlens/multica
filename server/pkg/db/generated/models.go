@@ -506,6 +506,16 @@ type ChannelUserBinding struct {
 	BoundAt        pgtype.Timestamptz `json:"bound_at"`
 }
 
+type ChatDraft struct {
+	ChatSessionID pgtype.UUID        `json:"chat_session_id"`
+	UserID        pgtype.UUID        `json:"user_id"`
+	RootMessageID pgtype.UUID        `json:"root_message_id"`
+	Revision      int64              `json:"revision"`
+	Content       string             `json:"content"`
+	AttachmentIds []pgtype.UUID      `json:"attachment_ids"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
 type ChatDraftRestore struct {
 	ID            pgtype.UUID        `json:"id"`
 	ChatSessionID pgtype.UUID        `json:"chat_session_id"`
@@ -513,6 +523,19 @@ type ChatDraftRestore struct {
 	Content       string             `json:"content"`
 	AttachmentIds []pgtype.UUID      `json:"attachment_ids"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
+type ChatEvent struct {
+	ID            pgtype.UUID        `json:"id"`
+	ChatSessionID pgtype.UUID        `json:"chat_session_id"`
+	EventSeq      int64              `json:"event_seq"`
+	AclVersion    int64              `json:"acl_version"`
+	EventType     string             `json:"event_type"`
+	ActorType     string             `json:"actor_type"`
+	ActorID       pgtype.UUID        `json:"actor_id"`
+	Payload       []byte             `json:"payload"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	PublishedAt   pgtype.Timestamptz `json:"published_at"`
 }
 
 type ChatMessage struct {
@@ -534,6 +557,28 @@ type ChatMessage struct {
 	ChannelOutboundChatID         pgtype.Text        `json:"channel_outbound_chat_id"`
 	ChannelOutboundMessageIds     []string           `json:"channel_outbound_message_ids"`
 	ChannelTypingSettled          bool               `json:"channel_typing_settled"`
+	ActorType                     pgtype.Text        `json:"actor_type"`
+	ActorID                       pgtype.UUID        `json:"actor_id"`
+	MessageSeq                    int64              `json:"message_seq"`
+	Revision                      int64              `json:"revision"`
+	EditedAt                      pgtype.Timestamptz `json:"edited_at"`
+	DeletedAt                     pgtype.Timestamptz `json:"deleted_at"`
+	RootMessageID                 pgtype.UUID        `json:"root_message_id"`
+	BroadcastToMain               bool               `json:"broadcast_to_main"`
+	ClientMessageID               pgtype.UUID        `json:"client_message_id"`
+	ContentFormat                 string             `json:"content_format"`
+	SystemKind                    pgtype.Text        `json:"system_kind"`
+	SourceMessageID               pgtype.UUID        `json:"source_message_id"`
+}
+
+type ChatParticipant struct {
+	ChatSessionID     pgtype.UUID        `json:"chat_session_id"`
+	ActorType         string             `json:"actor_type"`
+	ActorID           pgtype.UUID        `json:"actor_id"`
+	Role              string             `json:"role"`
+	JoinedAt          pgtype.Timestamptz `json:"joined_at"`
+	RevokedAt         pgtype.Timestamptz `json:"revoked_at"`
+	MembershipVersion int64              `json:"membership_version"`
 }
 
 type ChatPinnedAgent struct {
@@ -543,6 +588,26 @@ type ChatPinnedAgent struct {
 	AgentID     pgtype.UUID        `json:"agent_id"`
 	Position    float64            `json:"position"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type ChatProtectedObject struct {
+	Url          string      `json:"url"`
+	AttachmentID pgtype.UUID `json:"attachment_id"`
+}
+
+type ChatProtectedTask struct {
+	TaskID        pgtype.UUID `json:"task_id"`
+	ChatSessionID pgtype.UUID `json:"chat_session_id"`
+	IsPrivate     bool        `json:"is_private"`
+}
+
+type ChatReadState struct {
+	ChatSessionID  pgtype.UUID        `json:"chat_session_id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	RootMessageID  pgtype.UUID        `json:"root_message_id"`
+	UpToMessageSeq int64              `json:"up_to_message_seq"`
+	Revision       int64              `json:"revision"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 type ChatSession struct {
@@ -563,6 +628,25 @@ type ChatSession struct {
 	PinnedAt            pgtype.Timestamptz `json:"pinned_at"`
 	ProjectID           pgtype.UUID        `json:"project_id"`
 	ExplicitlyCreatedAt pgtype.Timestamptz `json:"explicitly_created_at"`
+	Kind                string             `json:"kind"`
+	Name                string             `json:"name"`
+	Topic               string             `json:"topic"`
+	Description         string             `json:"description"`
+	IsGeneral           bool               `json:"is_general"`
+	Revision            int64              `json:"revision"`
+	AclVersion          int64              `json:"acl_version"`
+	LastMessageSeq      int64              `json:"last_message_seq"`
+	LastEventSeq        int64              `json:"last_event_seq"`
+	DmKey               pgtype.Text        `json:"dm_key"`
+}
+
+type ChatThreadState struct {
+	ChatSessionID  pgtype.UUID `json:"chat_session_id"`
+	RootMessageID  pgtype.UUID `json:"root_message_id"`
+	UserID         pgtype.UUID `json:"user_id"`
+	Followed       bool        `json:"followed"`
+	UpToMessageSeq int64       `json:"up_to_message_seq"`
+	Revision       int64       `json:"revision"`
 }
 
 type ClientUsageDaily struct {
@@ -1627,7 +1711,8 @@ type User struct {
 	Language                pgtype.Text        `json:"language"`
 	ProfileDescription      string             `json:"profile_description"`
 	// User-preferred IANA timezone for report rendering (Viewing tz). NULL means "use the browser-detected tz at render time". Affects dashboards, charts, and any "today" label shown to this user. Does not affect data materialisation — all rollups remain in UTC.
-	Timezone pgtype.Text `json:"timezone"`
+	Timezone      pgtype.Text        `json:"timezone"`
+	DeactivatedAt pgtype.Timestamptz `json:"deactivated_at"`
 }
 
 type UserComposioConnection struct {
