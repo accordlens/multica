@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/attribution"
+	"github.com/multica-ai/multica/server/internal/chataccess"
 	"github.com/multica-ai/multica/server/internal/logger"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/runtimeapps"
@@ -2810,8 +2811,17 @@ func (h *Handler) ListAgentTasks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var viewerTaskID pgtype.UUID
+	if r.Header.Get("X-Actor-Source") == "task_token" {
+		var ok bool
+		viewerTaskID, ok = parseUUIDOrBadRequest(w, r.Header.Get("X-Task-ID"), "task id")
+		if !ok {
+			return
+		}
+	}
 	tasks, err := h.Queries.ListAgentTasks(r.Context(), db.ListAgentTasksParams{
-		AgentID: agent.ID, BeforeCreatedAt: beforeCreatedAt, BeforeID: beforeID,
+		ViewerTaskID: viewerTaskID,
+		ViewerUserID: parseUUID(requestUserID(r)), AgentID: agent.ID, BeforeCreatedAt: beforeCreatedAt, BeforeID: beforeID,
 		PageLimit: int32(limit + 1),
 	})
 	if err != nil {
@@ -3124,10 +3134,27 @@ func (h *Handler) ListWorkspaceAgentTaskSnapshot(w http.ResponseWriter, r *http.
 		return
 	}
 
+	ids := make([]pgtype.UUID, len(tasks))
+	for i, t := range tasks {
+		ids[i] = t.ID
+	}
+	private, err := h.readableChatTaskIDs(r, parseUUID(workspaceID), ids)
+	if err != nil {
+		chatAccessError(w, err)
+		return
+	}
 	resp := make([]AgentTaskResponse, 0, len(tasks))
 	for _, t := range tasks {
+		if allowed, protected := private[t.ID]; protected && !allowed {
+			continue
+		}
 		if _, ok := allowed[uuidToString(t.AgentID)]; !ok {
 			continue
+		}
+		if t.ChatSessionID.Valid {
+			if _, err := chataccess.Read(r.Context(), h.Queries, parseUUID(requestUserID(r)), parseUUID(workspaceID), t.ChatSessionID); err != nil {
+				continue
+			}
 		}
 		resp = append(resp, taskToResponse(t, workspaceID))
 	}

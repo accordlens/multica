@@ -1,14 +1,18 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
 
+	"github.com/multica-ai/multica/server/internal/chataccess"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/handler"
 	"github.com/multica-ai/multica/server/internal/realtime"
+	"github.com/multica-ai/multica/server/internal/util"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
@@ -76,9 +80,10 @@ func projectOutbound(eventType string, payload any) any {
 // for a Redis-backed relay or a feature-flagged dual-write implementation
 // without touching any of the event listeners below. This is Phase 0 of the
 // horizontal-scaling plan tracked in MUL-1138.
-func registerListeners(bus *events.Bus, b realtime.Broadcaster) {
+func registerListeners(bus *events.Bus, b realtime.Broadcaster, routing ...*db.Queries) {
 	// Personal events should NOT be broadcast to the whole workspace.
 	personalEvents := map[string]bool{
+		"chat:access_revoked":            true,
 		protocol.EventInboxNew:           true,
 		protocol.EventInboxRead:          true,
 		protocol.EventInboxArchived:      true,
@@ -89,6 +94,7 @@ func registerListeners(bus *events.Bus, b realtime.Broadcaster) {
 		protocol.EventInvitationRevoked:  true,
 		protocol.EventChatSessionCreated: true,
 		protocol.EventChatSessionUpdated: true,
+		protocol.EventChatSessionDeleted: true,
 	}
 
 	// Helper: marshal event and send to a specific user.
@@ -96,13 +102,19 @@ func registerListeners(bus *events.Bus, b realtime.Broadcaster) {
 		if recipientID == "" {
 			return
 		}
-		data, err := json.Marshal(map[string]any{"type": e.Type, "payload": projectOutbound(e.Type, e.Payload), "actor_id": e.ActorID, "actor_type": e.ActorType})
+		data, err := json.Marshal(map[string]any{"type": e.Type, "payload": projectOutbound(e.Type, e.Payload), "actor_id": e.ActorID, "actor_type": e.ActorType, "recipient_id": recipientID, "conversation_id": e.ChatSessionID, "task_id": e.TaskID, "workspace_id": e.WorkspaceID})
 		if err != nil {
 			return
 		}
 		realtime.M.RecordEvent(e.Type)
 		b.SendToUser(recipientID, data)
 	}
+	bus.Subscribe("chat:access_revoked", func(e events.Event) {
+		if p, ok := e.Payload.(map[string]any); ok {
+			id, _ := p["recipient_id"].(string)
+			sendToRecipient(b, e, id)
+		}
+	})
 
 	// inbox:new — extract recipient from nested item
 	bus.Subscribe(protocol.EventInboxNew, func(e events.Event) {
@@ -145,7 +157,7 @@ func registerListeners(bus *events.Bus, b realtime.Broadcaster) {
 			// Fallback for map encoding.
 			if invMap, ok := payload["invitation"].(map[string]any); ok {
 				if uid, _ := invMap["invitee_user_id"].(*string); uid != nil && *uid != "" {
-					data, err := json.Marshal(map[string]any{"type": e.Type, "payload": projectOutbound(e.Type, e.Payload), "actor_id": e.ActorID, "actor_type": e.ActorType})
+					data, err := json.Marshal(map[string]any{"type": e.Type, "payload": projectOutbound(e.Type, e.Payload), "actor_id": e.ActorID, "actor_type": e.ActorType, "conversation_id": e.ChatSessionID, "task_id": e.TaskID, "workspace_id": e.WorkspaceID})
 					if err != nil {
 						return
 					}
@@ -156,7 +168,7 @@ func registerListeners(bus *events.Bus, b realtime.Broadcaster) {
 			return
 		}
 		if inv.InviteeUserID != nil && *inv.InviteeUserID != "" {
-			data, err := json.Marshal(map[string]any{"type": e.Type, "payload": projectOutbound(e.Type, e.Payload), "actor_id": e.ActorID, "actor_type": e.ActorType})
+			data, err := json.Marshal(map[string]any{"type": e.Type, "payload": projectOutbound(e.Type, e.Payload), "actor_id": e.ActorID, "actor_type": e.ActorType, "conversation_id": e.ChatSessionID, "task_id": e.TaskID, "workspace_id": e.WorkspaceID})
 			if err != nil {
 				return
 			}
@@ -192,7 +204,7 @@ func registerListeners(bus *events.Bus, b realtime.Broadcaster) {
 			if e.ActorID == "" {
 				return
 			}
-			data, err := json.Marshal(map[string]any{"type": e.Type, "payload": projectOutbound(e.Type, e.Payload), "actor_id": e.ActorID, "actor_type": e.ActorType})
+			data, err := json.Marshal(map[string]any{"type": e.Type, "payload": projectOutbound(e.Type, e.Payload), "actor_id": e.ActorID, "actor_type": e.ActorType, "conversation_id": e.ChatSessionID, "task_id": e.TaskID, "workspace_id": e.WorkspaceID})
 			if err != nil {
 				return
 			}
@@ -205,7 +217,7 @@ func registerListeners(bus *events.Bus, b realtime.Broadcaster) {
 	// the creator's first message, so the list-invalidation event must not be
 	// broadcast to every workspace member. ActorID is the creator on every
 	// producer path for this event.
-	for _, eventType := range []string{protocol.EventChatSessionCreated, protocol.EventChatSessionUpdated} {
+	for _, eventType := range []string{protocol.EventChatSessionCreated, protocol.EventChatSessionUpdated, protocol.EventChatSessionDeleted} {
 		bus.Subscribe(eventType, func(e events.Event) {
 			sendToRecipient(b, e, e.ActorID)
 		})
@@ -231,7 +243,7 @@ func registerListeners(bus *events.Bus, b realtime.Broadcaster) {
 		if userID == "" {
 			return
 		}
-		data, err := json.Marshal(map[string]any{"type": e.Type, "payload": projectOutbound(e.Type, e.Payload), "actor_id": e.ActorID, "actor_type": e.ActorType})
+		data, err := json.Marshal(map[string]any{"type": e.Type, "payload": projectOutbound(e.Type, e.Payload), "actor_id": e.ActorID, "actor_type": e.ActorType, "conversation_id": e.ChatSessionID, "task_id": e.TaskID, "workspace_id": e.WorkspaceID})
 		if err != nil {
 			return
 		}
@@ -247,10 +259,11 @@ func registerListeners(bus *events.Bus, b realtime.Broadcaster) {
 		}
 
 		msg := map[string]any{
-			"type":       e.Type,
-			"payload":    projectOutbound(e.Type, e.Payload),
-			"actor_id":   e.ActorID,
-			"actor_type": e.ActorType,
+			"type":            e.Type,
+			"payload":         projectOutbound(e.Type, e.Payload),
+			"actor_id":        e.ActorID,
+			"actor_type":      e.ActorType,
+			"conversation_id": e.ChatSessionID, "task_id": e.TaskID, "workspace_id": e.WorkspaceID,
 		}
 		data, err := json.Marshal(msg)
 		if err != nil {
@@ -258,21 +271,61 @@ func registerListeners(bus *events.Bus, b realtime.Broadcaster) {
 			return
 		}
 
-		// Phase 1 (MUL-1138): the per-resource scope routing for high-frequency
-		// task/chat events is intentionally NOT enabled yet. The server-side
-		// pieces — Hub.subscribe/unsubscribe protocol, ScopeAuthorizer, Redis
-		// Streams relay — have all landed, but the client (WSClient + the
-		// per-page chat/task hooks) does not yet send `subscribe` frames or
-		// replay subscriptions on reconnect. Routing these events through
-		// `BroadcastToScope("task"|"chat", ...)` today would silently drop
-		// every chat/task message on the floor, breaking the live chat
-		// timeline, chat unread badges, and pending-task UI.
-		//
-		// Until the client lands its scope-subscription PR, we keep
-		// task/chat events on workspace fanout (same behavior as before this
-		// PR). The `Event.TaskID` / `Event.ChatSessionID` hints are still
-		// populated by producers so that flipping the switch later is a
-		// one-line change here. See review on PR #1429 for context.
+		// User targeting preserves delivery to installed clients that do not
+		// subscribe to resource scopes. The hub reauthorizes queued/relay frames
+		// at delivery, so a recipient list is never a revocable capability.
+		chatID := e.ChatSessionID
+		if chatID != "" || strings.HasPrefix(e.Type, "chat:") || strings.HasPrefix(e.Type, "task:") {
+			if len(routing) == 0 || routing[0] == nil {
+				return
+			}
+			q := routing[0]
+			if e.TaskID != "" {
+				taskUUID, err := util.ParseUUID(e.TaskID)
+				if err != nil {
+					return
+				}
+				task, err := q.GetAgentTask(context.Background(), taskUUID)
+				if err != nil {
+					return
+				}
+				conversation, err := chataccess.TaskConversation(context.Background(), q, task)
+				if err != nil {
+					return
+				}
+				if conversation.Valid {
+					chatID = util.UUIDToString(conversation)
+				}
+			}
+			if chatID != "" {
+				cid, err := util.ParseUUID(chatID)
+				if err != nil {
+					return
+				}
+				wid, err := util.ParseUUID(e.WorkspaceID)
+				if err != nil {
+					return
+				}
+				recipients, err := q.ListChatRecipientIDs(context.Background(), db.ListChatRecipientIDsParams{ChatSessionID: cid, WorkspaceID: wid})
+				if err != nil {
+					return
+				}
+				msg["conversation_id"] = chatID
+				data, err = json.Marshal(msg)
+				if err != nil {
+					return
+				}
+				for _, uid := range recipients {
+					if _, err := chataccess.Read(context.Background(), q, uid, wid, cid); err == nil {
+						b.SendToUser(util.UUIDToString(uid), data)
+					}
+				}
+				return
+			}
+			if strings.HasPrefix(e.Type, "chat:") || e.TaskID == "" {
+				return
+			}
+		}
 
 		if e.WorkspaceID != "" {
 			realtime.M.RecordEvent(e.Type)

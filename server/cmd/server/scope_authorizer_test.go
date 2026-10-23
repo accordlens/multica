@@ -19,6 +19,10 @@ type fakeScopeQuerier struct {
 	sessions map[[16]byte]db.ChatSession
 }
 
+func (f *fakeScopeQuerier) GetChatProtectedTask(context.Context, pgtype.UUID) (db.ChatProtectedTask, error) {
+	return db.ChatProtectedTask{}, pgx.ErrNoRows
+}
+
 func (f *fakeScopeQuerier) GetAgentTask(_ context.Context, id pgtype.UUID) (db.AgentTaskQueue, error) {
 	if t, ok := f.tasks[id.Bytes]; ok {
 		return t, nil
@@ -192,6 +196,10 @@ func TestScopeAuthorizer_IssueTaskWorkspaceOnly(t *testing.T) {
 // so handleSubscribe reports "lookup_failed" rather than "forbidden".
 type failingScopeQuerier struct{}
 
+func (failingScopeQuerier) GetChatProtectedTask(context.Context, pgtype.UUID) (db.ChatProtectedTask, error) {
+	return db.ChatProtectedTask{}, errors.New("connection reset by peer")
+}
+
 func (failingScopeQuerier) GetAgentTask(context.Context, pgtype.UUID) (db.AgentTaskQueue, error) {
 	return db.AgentTaskQueue{}, errors.New("connection reset by peer")
 }
@@ -207,6 +215,10 @@ func (failingScopeQuerier) GetChatSession(context.Context, pgtype.UUID) (db.Chat
 // error. This isolates the inner lookup points from the outer GetAgentTask.
 type errOnInnerQuerier struct {
 	task db.AgentTaskQueue
+}
+
+func (*errOnInnerQuerier) GetChatProtectedTask(context.Context, pgtype.UUID) (db.ChatProtectedTask, error) {
+	return db.ChatProtectedTask{}, pgx.ErrNoRows
 }
 
 func (q *errOnInnerQuerier) GetAgentTask(_ context.Context, _ pgtype.UUID) (db.AgentTaskQueue, error) {
@@ -279,4 +291,39 @@ func TestScopeAuthorizer_MissingResourceIsPlainDenial(t *testing.T) {
 	if ok, err := a.AuthorizeScope(ctx, userStr, wsStr, realtime.ScopeChat, missingChat); err != nil || ok {
 		t.Fatalf("missing chat session must be a plain denial: ok=%v err=%v", ok, err)
 	}
+}
+
+func (f *fakeScopeQuerier) GetChatAccess(ctx context.Context, p db.GetChatAccessParams) (db.GetChatAccessRow, error) {
+	s, err := f.GetChatSession(ctx, p.ChatSessionID)
+	if err != nil {
+		return db.GetChatAccessRow{}, err
+	}
+	if s.WorkspaceID != p.WorkspaceID || s.CreatorID != p.UserID {
+		return db.GetChatAccessRow{}, pgx.ErrNoRows
+	}
+	return db.GetChatAccessRow{ID: s.ID, WorkspaceID: s.WorkspaceID, CreatorID: s.CreatorID, Kind: "private_channel", WorkspaceRole: "owner"}, nil
+}
+func (*fakeScopeQuerier) GetAgent(context.Context, pgtype.UUID) (db.Agent, error) {
+	return db.Agent{}, nil
+}
+func (*fakeScopeQuerier) ListAgentInvocationTargets(context.Context, pgtype.UUID) ([]db.AgentInvocationTarget, error) {
+	return nil, nil
+}
+func (f failingScopeQuerier) GetChatAccess(context.Context, db.GetChatAccessParams) (db.GetChatAccessRow, error) {
+	return db.GetChatAccessRow{}, errors.New("connection reset by peer")
+}
+func (f failingScopeQuerier) GetAgent(context.Context, pgtype.UUID) (db.Agent, error) {
+	return db.Agent{}, errors.New("connection reset by peer")
+}
+func (f failingScopeQuerier) ListAgentInvocationTargets(context.Context, pgtype.UUID) ([]db.AgentInvocationTarget, error) {
+	return nil, errors.New("connection reset by peer")
+}
+func (f *errOnInnerQuerier) GetChatAccess(context.Context, db.GetChatAccessParams) (db.GetChatAccessRow, error) {
+	return db.GetChatAccessRow{}, errors.New("connection reset by peer")
+}
+func (f *errOnInnerQuerier) GetAgent(context.Context, pgtype.UUID) (db.Agent, error) {
+	return db.Agent{}, errors.New("connection reset by peer")
+}
+func (f *errOnInnerQuerier) ListAgentInvocationTargets(context.Context, pgtype.UUID) ([]db.AgentInvocationTarget, error) {
+	return nil, errors.New("connection reset by peer")
 }

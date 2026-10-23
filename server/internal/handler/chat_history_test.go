@@ -73,7 +73,7 @@ func newChatHistoryTask(t *testing.T, chatSession bool) string {
 	var taskID string
 	if err := testPool.QueryRow(context.Background(), `
 		INSERT INTO agent_task_queue (agent_id, runtime_id, status, priority, chat_session_id)
-		VALUES ($1, $2, 'completed', 0, $3)
+		VALUES ($1, $2, 'running', 0, $3)
 		RETURNING id
 	`, agentID, runtimeID, sessionArg).Scan(&taskID); err != nil {
 		t.Fatalf("insert chat history task: %v", err)
@@ -93,7 +93,7 @@ func newChatHistoryTaskForSession(t *testing.T, sessionID string) string {
 	var taskID string
 	if err := testPool.QueryRow(context.Background(), `
 		INSERT INTO agent_task_queue (agent_id, runtime_id, status, priority, chat_session_id)
-		VALUES ($1, $2, 'completed', 0, $3)
+		VALUES ($1, $2, 'running', 0, $3)
 		RETURNING id
 	`, agentID, runtimeID, sessionID).Scan(&taskID); err != nil {
 		t.Fatalf("insert chat history task for session: %v", err)
@@ -111,6 +111,13 @@ func taskActorReq(target, taskID string) *http.Request {
 	req := newRequest("GET", target, nil)
 	req.Header.Set("X-Actor-Source", "task_token")
 	req.Header.Set("X-Task-ID", taskID)
+	req.Header.Set("X-User-ID", testUserID)
+	req.Header.Set("X-Workspace-ID", testWorkspaceID)
+	if id, err := util.ParseUUID(taskID); err == nil {
+		if task, err := testHandler.Queries.GetAgentTask(req.Context(), id); err == nil {
+			req.Header.Set("X-Agent-ID", uuidToString(task.AgentID))
+		}
+	}
 	return req
 }
 

@@ -311,3 +311,25 @@ func extractToken(r *http.Request) (token string, fromCookie bool) {
 
 	return "", false
 }
+
+// OptionalAuth retains anonymous capabilities for issue files, while providing
+// a verified identity for chat-file redemption. Client identity headers never
+// survive an anonymous request.
+func OptionalAuth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATVerifier, signer *auth.CloudFrontSigner) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		authenticated := Auth(queries, patCache, cloudPAT, signer)(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.Header.Del("X-User-ID")
+			r.Header.Del("X-User-Email")
+			r.Header.Del("X-Actor-Source")
+			r.Header.Del("X-Agent-ID")
+			r.Header.Del("X-Task-ID")
+			token, _ := extractToken(r)
+			if token != "" {
+				authenticated.ServeHTTP(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}

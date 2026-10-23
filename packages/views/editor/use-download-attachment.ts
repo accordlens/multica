@@ -62,7 +62,7 @@ function capabilityDownloadUrl(downloadUrl: string | undefined): string | null {
   return resolvePublicFileUrl(downloadUrl);
 }
 
-function triggerBrowserDownload(url: string): void {
+function triggerBrowserDownload(url: string,filename=""): void {
   const anchor = document.createElement("a");
   anchor.href = url;
   // Keep the click in the current browsing context. For same-origin API
@@ -71,7 +71,7 @@ function triggerBrowserDownload(url: string): void {
   // CloudFront/S3, the server signs that redirect with an attachment
   // disposition; the browser follows it natively without buffering the file
   // into JS memory.
-  anchor.download = "";
+  anchor.download = filename;
   anchor.rel = "noopener";
   anchor.style.display = "none";
   document.body.appendChild(anchor);
@@ -125,6 +125,13 @@ export function useDownloadAttachment(
           const fresh = await (source === "markdown-link"
             ? api.getAttachmentForDownload(attachmentId)
             : api.getAttachment(attachmentId));
+          if (fresh.chat_session_id || fresh.chat_message_id) {
+            const blob = await api.getAttachmentBlob(attachmentId);
+            const url = URL.createObjectURL(blob);
+            triggerBrowserDownload(url, fresh.filename);
+            setTimeout(() => URL.revokeObjectURL(url), 60_000);
+            return;
+          }
           // Prefer the forced-attachment URL (Content-Disposition: attachment in
           // every storage mode) so the native save writes the file rather than
           // opening media inline; fall back to the load-intent `download_url` for
@@ -158,6 +165,13 @@ export function useDownloadAttachment(
         const fresh = await (source === "markdown-link"
           ? api.getAttachmentForDownload(attachmentId)
           : api.getAttachment(attachmentId));
+        if (fresh.chat_session_id || fresh.chat_message_id) {
+          const blob = await api.getAttachmentBlob(attachmentId);
+          const url = URL.createObjectURL(blob);
+          triggerBrowserDownload(url, fresh.filename);
+          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+          return;
+        }
         if (typeof document === "undefined") {
           failed();
           return;

@@ -5,6 +5,7 @@ import type { StorageAdapter } from "../types/storage";
 import type { Workspace } from "../types";
 import { workspaceKeys } from "../workspace/queries";
 import { defaultStorage } from "./storage";
+import { clearPrivateCaches } from "./private-cache";
 import {
   clearAllWorkspaceStorage,
   clearWorkspaceStorage,
@@ -39,6 +40,7 @@ export function clearClientSessionData(
   // reload the page, so the singletons would otherwise surface the previous
   // user's draft after the next login.
   resetAllRegisteredDrafts();
+  clearPrivateCaches();
 
   // Then clear workspace-scoped storage, BEFORE clearing the React Query cache
   // (which holds the workspace list). Otherwise per-workspace drafts/chat/etc
