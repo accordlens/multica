@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -36,13 +37,35 @@ type scriptPilot struct {
 
 func pilotGit(t *testing.T, repo string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	cmd := exec.Command("git", append([]string{"-c", "core.longpaths=true", "-C", repo}, args...)...)
 	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
 	raw, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %s %v", args, raw, err)
 	}
 	return strings.TrimSpace(string(raw))
+}
+
+func cleanupPilotFiles(t *testing.T, root string) {
+	t.Helper()
+	t.Cleanup(func() {
+		if runtime.GOOS != "windows" {
+			return
+		}
+		// Test-owned Git objects have Windows' read-only file attribute.
+		err := filepath.WalkDir(root, func(filename string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.Type().IsRegular() {
+				return os.Chmod(filename, 0600)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Error(err)
+		}
+	})
 }
 
 func newScriptPilot(t *testing.T) scriptPilot {
@@ -55,6 +78,7 @@ func newScriptPilot(t *testing.T) scriptPilot {
 	reviewer := f.privateAgentOwnedBy(t, owner, "script-reviewer")
 	f.Insert(t, "issue_status", testutil.Cols{"workspace_id": f.WorkspaceID, "key": "verify", "name": "Verify", "category": "started", "color": "#123456"})
 	workdir := t.TempDir()
+	cleanupPilotFiles(t, workdir)
 	repo := filepath.Join(workdir, "pilot repo")
 	if err := os.Mkdir(repo, 0700); err != nil {
 		t.Fatal(err)

@@ -18,7 +18,7 @@ import (
 
 func workflowTestGit(t *testing.T, root string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
+	cmd := workflowGit(append([]string{"-C", root}, args...)...)
 	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -38,6 +38,11 @@ if(mode==='hang'){writeFileSync(p.MULTICA_WORKFLOW_REPORT+'.started','started');
 func workflowTestExecution(t *testing.T, mode string) issueworkflow.Execution {
 	t.Helper()
 	workdir := t.TempDir()
+	t.Cleanup(func() {
+		if err := removeWorkflowResources(workdir); err != nil {
+			t.Error(err)
+		}
+	})
 	repo := filepath.Join(workdir, "repo with spaces")
 	if err := os.Mkdir(repo, 0700); err != nil {
 		t.Fatal(err)
@@ -78,6 +83,41 @@ func TestWorkflowScriptExecutesReportsAndRetainsReceiptWithoutReplay(t *testing.
 				t.Fatalf("callback replay reran or changed receipt: %v / %s", err, cached.Outcome)
 			}
 		})
+	}
+}
+
+func TestWorkflowScriptLongCheckoutAndCleanup(t *testing.T) {
+	e := workflowTestExecution(t, "pass")
+	// Keep the source within Git for Windows' startup path limit. Its
+	// receipt directory exceeds MAX_PATH; the disposable replica must not.
+	longRoot := filepath.Join(e.WorkDir, strings.Repeat("p", max(1, 230-len(e.WorkDir)-len(e.Script.Checkout)-2)))
+	if err := os.MkdirAll(longRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(e.WorkDir, e.Script.Checkout), filepath.Join(longRoot, e.Script.Checkout)); err != nil {
+		t.Fatal(err)
+	}
+	e.WorkDir = longRoot
+	e.Script.TimeoutSeconds = 15
+	id := uuid.NewString()
+	evidence, err := runWorkflowScript(context.Background(), id, e)
+	if err != nil || evidence.Outcome != "passed" {
+		t.Fatalf("long checkout: %+v / %v", evidence, err)
+	}
+	directory := filepath.Join(longRoot, e.Script.Checkout, ".git", "multica-workflow", id)
+	raw, err := os.ReadFile(filepath.Join(directory, "resources.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var handle struct{ Directory string }
+	if err := json.Unmarshal(raw, &handle); err != nil || handle.Directory == "" {
+		t.Fatalf("missing resource cleanup handle: %s / %v", raw, err)
+	}
+	if _, err := os.Stat(handle.Directory); !os.IsNotExist(err) {
+		t.Fatalf("owned resources remained after completion: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, "evidence.json")); err != nil {
+		t.Fatalf("cleanup removed the retained receipt: %v", err)
 	}
 }
 

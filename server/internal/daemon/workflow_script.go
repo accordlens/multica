@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -57,6 +58,44 @@ func workflowEnvironment(report, runID, sha, version, scriptVersion string) []st
 		"MULTICA_WORKFLOW_SCRIPT_VERSION="+scriptVersion)
 }
 
+func workflowGit(args ...string) *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		// Run-owned receipts and replicas may exceed MAX_PATH. Keep this
+		// setting local to the command, without changing the user's Git config.
+		args = append([]string{"-c", "core.longpaths=true"}, args...)
+	}
+	return exec.Command("git", args...)
+}
+
+func removeWorkflowResources(root string) error {
+	if runtime.GOOS == "windows" {
+		// Git marks cloned object files read-only on Windows. Clear that
+		// attribute only on regular files in the owned tree; never follow links.
+		err := filepath.WalkDir(root, func(filename string, entry fs.DirEntry, err error) error {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if entry.Type().IsRegular() {
+				info, err := entry.Info()
+				if err != nil {
+					return err
+				}
+				if info.Mode().Perm()&0200 == 0 {
+					return os.Chmod(filename, info.Mode().Perm()|0200)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return os.RemoveAll(root)
+}
+
 // workflowPath rejects Windows drives, traversal and symlinks escaping the
 // execution checkout on every host (including when validating Windows input).
 func workflowPath(root, relative string) (string, error) {
@@ -84,13 +123,21 @@ func workflowSource(ctx context.Context, workdir string, script issueworkflow.Sc
 		return issueworkflow.Source{}, "", err
 	}
 	git := func(args ...string) ([]byte, error) {
-		cmd := exec.Command("git", append([]string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=" + os.DevNull, "-C", checkout}, args...)...)
+		cmd := workflowGit(append([]string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=" + os.DevNull, "-C", checkout}, args...)...)
 		cmd.Env = workflowEnvironment("", "", "", "", "")
 		return processtree.Output(ctx, cmd, time.Second)
 	}
 	root, err := git("rev-parse", "--show-toplevel")
-	if err != nil || !sameExistingDir(strings.TrimSpace(string(root)), checkout) {
-		return issueworkflow.Source{}, "", fmt.Errorf("workflow checkout must be a Git repository root")
+	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return issueworkflow.Source{}, "", fmt.Errorf("read workflow checkout root: %w: %s", err, strings.TrimSpace(string(exit.Stderr)))
+		}
+		return issueworkflow.Source{}, "", err
+	}
+	gitRoot := filepath.FromSlash(strings.TrimSpace(string(root)))
+	if !sameExistingDir(gitRoot, checkout) {
+		return issueworkflow.Source{}, "", fmt.Errorf("workflow checkout must be a Git repository root: %q differs from %q", gitRoot, checkout)
 	}
 	sha, err := git("rev-parse", "HEAD")
 	if err != nil {
@@ -156,6 +203,11 @@ func runWorkflowScript(ctx context.Context, runID string, execution issueworkflo
 		evidence.LogHash = issueworkflow.HashBytes([]byte(evidence.Log))
 		if returnErr != nil {
 			evidence.Reason = returnErr.Error()
+			if errors.Is(returnErr, context.Canceled) {
+				evidence.Outcome = "cancelled"
+			} else if errors.Is(returnErr, context.DeadlineExceeded) {
+				evidence.Outcome = "timeout"
+			}
 		}
 		if recordDirectory != "" {
 			raw, err := json.Marshal(evidence)
@@ -190,7 +242,7 @@ func runWorkflowScript(ctx context.Context, runID string, execution issueworkflo
 	if err := pinWorkflowFiles(checkout, execution.Script); err != nil {
 		return evidence, err
 	}
-	gitDirCmd := exec.Command("git", "-C", checkout, "rev-parse", "--absolute-git-dir")
+	gitDirCmd := workflowGit("-C", checkout, "rev-parse", "--absolute-git-dir")
 	gitDirCmd.Env = workflowEnvironment("", "", "", "", "")
 	gitDir, err := processtree.Output(ctx, gitDirCmd, time.Second)
 	if err != nil {
@@ -218,18 +270,29 @@ func runWorkflowScript(ctx context.Context, runID string, execution issueworkflo
 	recordDirectory = owned
 	// Tests run against committed objects, never a concurrently writable
 	// author's tree or ignored developer files. The replica is run-owned.
-	snapshot := filepath.Join(owned, "checkout")
+	// Git for Windows cannot start with a cwd beyond MAX_PATH, even with
+	// core.longpaths. Keep the disposable replica under the OS temp root;
+	// its cleanup handle and immutable receipt remain in the source gitdir.
+	resources, err := os.MkdirTemp("", "multica-workflow-"+runID+"-")
+	if err != nil {
+		return evidence, err
+	}
 	defer func() {
-		if err := os.RemoveAll(snapshot); err != nil {
+		if err := removeWorkflowResources(resources); err != nil {
 			evidence.Outcome = "infrastructure_failed"
-			returnErr = fmt.Errorf("checkout cleanup failed: %w", err)
+			returnErr = fmt.Errorf("script resource cleanup failed: %w", err)
 		}
 	}()
+	resourceHandle, _ := json.Marshal(map[string]string{"directory": resources})
+	if err := os.WriteFile(filepath.Join(owned, "resources.json"), resourceHandle, 0600); err != nil {
+		return evidence, err
+	}
+	snapshot := filepath.Join(resources, "checkout")
 	for _, argv := range [][]string{{"clone", "--no-hardlinks", "--no-checkout", checkout, snapshot}, {"-C", snapshot, "-c", "core.hooksPath=" + os.DevNull, "checkout", "--detach", source.SHA}} {
-		clone := exec.Command("git", argv...)
+		clone := workflowGit(argv...)
 		clone.Env = workflowEnvironment("", "", "", "", "")
-		if _, err := processtree.CombinedOutput(ctx, clone, time.Second); err != nil {
-			return evidence, fmt.Errorf("prepare committed checkout: %w", err)
+		if output, err := processtree.CombinedOutput(ctx, clone, time.Second); err != nil {
+			return evidence, fmt.Errorf("prepare committed checkout: %w: %s", err, strings.TrimSpace(string(output)))
 		}
 	}
 	if err := pinWorkflowFiles(snapshot, execution.Script); err != nil {
@@ -239,16 +302,10 @@ func runWorkflowScript(ctx context.Context, runID string, execution issueworkflo
 	if err != nil {
 		return evidence, err
 	}
-	home := filepath.Join(owned, "home")
+	home := filepath.Join(resources, "home")
 	if err := os.MkdirAll(filepath.Join(home, "tmp"), 0700); err != nil {
 		return evidence, err
 	}
-	defer func() {
-		if err := os.RemoveAll(home); err != nil {
-			evidence.Outcome = "infrastructure_failed"
-			returnErr = fmt.Errorf("script resource cleanup failed: %w", err)
-		}
-	}()
 	reportPath := filepath.Join(owned, "report.json")
 	cmd := exec.Command(execution.Script.Command[0], execution.Script.Command[1:]...)
 	cmd.Dir = directory

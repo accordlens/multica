@@ -13,6 +13,24 @@ The automated regression uses fake authors/reviewers, real Git commits, a real
 Node verification command and a disposable PostgreSQL database. It invokes no
 provider or installed agent CLI.
 
+The offline counterpart runs the same `CompleteTaskWithTransition` and script
+helper with a fake sqlc transport. It uses real Git commits and Node reports,
+including FAIL, one repair, PASS on the new SHA and a deduplicated reviewer
+handoff. It also checks stale/empty/skipped evidence, cancellation, timeout,
+repair/time budgets and PR-head mismatch. Run from `server/` with the Go version
+in `go.mod`, Git and Node on PATH:
+
+```sh
+GOMAXPROCS=2 go test -p=1 ./internal/service -run '^TestScriptWorkflowOfflineNative' -count=1 -parallel=1 -v
+GOMAXPROCS=2 go test -p=1 ./internal/issueworkflow ./internal/daemon -run 'Workflow|Script' -count=1 -parallel=1
+```
+
+In PowerShell, first set `$env:GOMAXPROCS='2'` and omit the shell assignment
+prefix. The fake transport verifies service routing and callback behavior;
+PostgreSQL transactions/concurrency, dependency integration and browser/API
+acceptance still require the separate disposable-DB and E2E tests. Fake review
+output in this fixture is not an independent QA verdict for the implementation.
+
 ## Definition and installation
 
 From the repository root, a human administrator generates and reviews the
@@ -58,6 +76,13 @@ variables below. They receive no provider keys, Multica tokens, agent custom
 environment, connected apps, developer HOME or `.env` files. This is process
 isolation and an environment boundary, not an OS sandbox against hostile code.
 Use trusted, pinned local check commands with no external mutations.
+
+Disposable checkouts and their temporary HOME live under the OS temp root to
+keep Git subprocess paths short on Windows. `resources.json` beside the retained
+receipt records their cleanup handle. Cleanup clears read-only attributes on
+regular files in that owned tree without following links. The source repository
+root must fit Git for Windows' startup path limit; an unsupported root fails
+with an infrastructure error. Receipt paths may exceed that limit.
 
 ## Report and evidence
 
