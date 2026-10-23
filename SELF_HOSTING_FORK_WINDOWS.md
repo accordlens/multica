@@ -182,11 +182,15 @@ Passkeys are bound to the exact host of `MULTICA_APP_URL`, which must be the
 final HTTPS origin from ACCO-54. Changing that host later makes every
 registered passkey unusable; everyone then needs a new enrollment link. The
 backend refuses to start in passkey-only mode with a non-HTTPS origin,
-credentials, query, fragment, invalid DNS host or unrelated RP ID. The planned
-final configuration is `MULTICA_APP_URL=https://Multica.local` and
-`MULTICA_PASSKEY_RP_ID=Multica.local` (DNS names are normalized to lowercase).
-Enroll only after ACCO-54 verifies that host's DNS and trusted HTTPS; a
-temporary `.ts.net` address is not the final enrollment origin.
+credentials, query, fragment, invalid DNS host or unrelated RP ID. The accepted
+private release configuration is
+`MULTICA_APP_URL=https://patryk-pc.tailbdf3a9.ts.net` and
+`MULTICA_PASSKEY_RP_ID=patryk-pc.tailbdf3a9.ts.net` (DNS names are normalized
+to lowercase). Enroll only after ACCO-54 verifies this host's DNS, trusted
+HTTPS and private tailnet access; HTTPS, enrollment and device acceptance
+remain unverified. `Multica.local` is no longer a release requirement, and
+the future `multica.accordlens.com` domain belongs to ACCO-169's separate
+backlog rather than the current release gates.
 
 **First owner.** On the host, mint a one-time link and open it in a browser:
 
