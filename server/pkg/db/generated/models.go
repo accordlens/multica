@@ -1293,6 +1293,16 @@ type NotificationPreference struct {
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
+type PasskeyEnrollmentToken struct {
+	ID        pgtype.UUID        `json:"id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	TokenHash string             `json:"token_hash"`
+	CreatedBy pgtype.UUID        `json:"created_by"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	UsedAt    pgtype.Timestamptz `json:"used_at"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type PersonalAccessToken struct {
 	ID          pgtype.UUID        `json:"id"`
 	UserID      pgtype.UUID        `json:"user_id"`
@@ -1786,6 +1796,26 @@ type VerificationCode struct {
 	Used      bool               `json:"used"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	Attempts  int32              `json:"attempts"`
+}
+
+type WebauthnChallenge struct {
+	ID                pgtype.UUID        `json:"id"`
+	Purpose           string             `json:"purpose"`
+	UserID            pgtype.UUID        `json:"user_id"`
+	EnrollmentTokenID pgtype.UUID        `json:"enrollment_token_id"`
+	SessionData       []byte             `json:"session_data"`
+	ExpiresAt         pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+type WebauthnCredential struct {
+	ID           pgtype.UUID        `json:"id"`
+	UserID       pgtype.UUID        `json:"user_id"`
+	CredentialID []byte             `json:"credential_id"`
+	Credential   []byte             `json:"credential"`
+	Name         string             `json:"name"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	LastUsedAt   pgtype.Timestamptz `json:"last_used_at"`
 }
 
 type WebhookDelivery struct {

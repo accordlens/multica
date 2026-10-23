@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/multica-ai/multica/server/internal/passkey"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -448,6 +450,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		ServerVersion:            normalizeServerVersion(version),
 	}
 	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
+	if h.Passkey = passkeyRelyingPartyFromEnv(signupConfig.AppURL); h.Passkey != nil {
+		slog.Info("passkey-only sign-in enabled", "rp_id", h.Passkey.Config.RPID, "origin", h.Passkey.Config.RPOrigins)
+	}
 	invitationRateLimits := handler.DefaultInvitationRateLimits()
 	invitationRateLimits.Actor.Limit = envNonNegativeInt("RATE_LIMIT_INVITATION_ACTOR_10M", invitationRateLimits.Actor.Limit)
 	invitationRateLimits.Workspace.Limit = envNonNegativeInt("RATE_LIMIT_INVITATION_WORKSPACE_24H", invitationRateLimits.Workspace.Limit)
@@ -1508,9 +1513,19 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	authRL := middleware.RateLimit(rdb, envPositiveInt("RATE_LIMIT_AUTH", 5), time.Minute, trustedProxies)
 	authVerifyRL := middleware.RateLimit(rdb, envPositiveInt("RATE_LIMIT_AUTH_VERIFY", 20), time.Minute, trustedProxies)
 	contactSalesRL := middleware.RateLimit(rdb, envPositiveInt("RATE_LIMIT_CONTACT_SALES", 5), time.Hour, trustedProxies)
-	r.With(authRL).Post("/auth/send-code", h.SendCode)
-	r.With(authVerifyRL).Post("/auth/verify-code", h.VerifyCode)
-	r.With(authRL).Post("/auth/google", h.GoogleLogin)
+	if h.Passkey != nil {
+		// Passkey-only (ACCO-55): the email-code and Google endpoints are not
+		// mounted at all, so there is no alternative way for a person to
+		// sign in or create an account.
+		r.With(authRL).Post("/auth/passkey/login/begin", h.PasskeyLoginBegin)
+		r.With(authVerifyRL).Post("/auth/passkey/login/finish", h.PasskeyLoginFinish)
+		r.With(authRL).Post("/auth/passkey/enroll/begin", h.PasskeyEnrollBegin)
+		r.With(authVerifyRL).Post("/auth/passkey/enroll/finish", h.PasskeyEnrollFinish)
+	} else {
+		r.With(authRL).Post("/auth/send-code", h.SendCode)
+		r.With(authVerifyRL).Post("/auth/verify-code", h.VerifyCode)
+		r.With(authRL).Post("/auth/google", h.GoogleLogin)
+	}
 	r.Post("/auth/logout", h.Logout)
 
 	// Public API
@@ -1659,6 +1674,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Post("/api/me/onboarding/complete", h.CompleteOnboarding)
 		r.Post("/api/me/onboarding/cloud-waitlist", h.JoinCloudWaitlist)
 		r.Post("/api/cli-token", h.IssueCliToken)
+		if h.Passkey != nil {
+			r.Get("/api/me/passkeys", h.ListMyPasskeys)
+			r.Post("/api/me/passkeys/begin", h.BeginAddPasskey)
+			r.Post("/api/me/passkeys/finish", h.FinishAddPasskey)
+			r.Delete("/api/me/passkeys/{passkeyId}", h.DeleteMyPasskey)
+		}
 		// Sliding session renewal for clients that hold the session as a
 		// string (Desktop, mobile). Browsers get theirs re-issued inline by
 		// middleware.Auth and never call this (MUL-7436).
@@ -1741,6 +1762,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 						r.Delete("/", h.DeleteMember)
 					})
 					r.Delete("/invitations/{invitationId}", h.RevokeInvitation)
+					if h.Passkey != nil {
+						r.Post("/invitations/{invitationId}/passkey-link", h.CreateInvitationPasskeyLink)
+					}
 					// Curating the shared MCP library is an admin action.
 					// Creating an entry binds it to no agent; an agent owner
 					// adds it to their own agent through the agent routes.
@@ -2729,4 +2753,24 @@ func wecomMetricsOrNil(m *obsmetrics.WecomMetrics) wecom.Metrics {
 		return nil
 	}
 	return m
+}
+
+// passkeyRelyingPartyFromEnv returns the WebAuthn relying party when
+// MULTICA_PASSKEY_ONLY=true, derived from the app origin (MULTICA_APP_URL)
+// and the optional MULTICA_PASSKEY_RP_ID. A passkey-only deployment whose
+// origin can not host passkeys must not start with no way to sign in, so a
+// bad configuration panics at boot.
+func passkeyRelyingPartyFromEnv(appURL string) *webauthn.WebAuthn {
+	if os.Getenv("MULTICA_PASSKEY_ONLY") != "true" {
+		return nil
+	}
+	cfg, err := passkey.ConfigFromAppURL(appURL, os.Getenv("MULTICA_PASSKEY_RP_ID"))
+	if err != nil {
+		panic(err)
+	}
+	rp, err := cfg.WebAuthn()
+	if err != nil {
+		panic(fmt.Errorf("passkey: %w", err))
+	}
+	return rp
 }

@@ -11,12 +11,14 @@ export type {
   ApiClientOptions,
   ClientRuntimeSnapshot,
   ClientUsageRequest,
+  LoginResponse,
 } from "./client";
 export { parseWithFallback, setSchemaLogger } from "./schema";
 export type { ParseOptions } from "./schema";
 export { DuplicateIssueErrorBodySchema } from "./schemas";
 export type { DuplicateIssueErrorBody } from "./schemas";
 export { WSClient } from "./ws-client";
+export type { Passkey, PasskeyCeremony, PasskeyLink } from "./passkey-schemas";
 
 import type { ApiClient as ApiClientType } from "./client";
 

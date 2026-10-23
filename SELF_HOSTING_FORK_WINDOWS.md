@@ -124,6 +124,7 @@ FRONTEND_ORIGIN=$pilotUrl
 MULTICA_APP_URL=$pilotUrl
 DO_NOT_TRACK=true
 ALLOW_SIGNUP=false
+MULTICA_PASSKEY_ONLY=true
 "@
 [IO.File]::WriteAllText((Join-Path (Get-Location) '.env.pilot'), $config, [Text.UTF8Encoding]::new($false))
 $compose = @('compose','--project-name','multica-pilot',
@@ -141,8 +142,8 @@ Invoke-WebRequest http://127.0.0.1:3000/
 
 Compose lets process environment variables override env files: use a fresh
 PowerShell session without deployment variables. `config --quiet` avoids
-printing interpolated secrets. Configure an explicit signup/email allow-list
-and mail or verification behavior in ACCO-55 before human login testing.
+printing interpolated secrets. People sign in with passkeys only; see
+[Passkey sign-in](#passkey-sign-in) for the first owner and invitations.
 Keep ports bound to `127.0.0.1`; Tailscale/reverse-proxy routing is separate.
 Never commit `.env.pilot` or include it in an evidence archive.
 
@@ -168,6 +169,63 @@ Routine `stop` and `down` retain named database/upload volumes. Never use
 `release.env`. Database migrations run at backend startup; reverting images
 alone does not undo them. Restore a compatible backup for rollback, following
 the tested ACCO-58 runbook. Do not use the smoke's disposable cleanup on the pilot.
+
+## Passkey sign-in
+
+With `MULTICA_PASSKEY_ONLY=true` people sign in with a passkey and nothing
+else: the email-code and Google endpoints are not mounted, and nobody can
+create an account from the login page. CLI, daemon and agent credentials are
+unchanged; `multica login` still opens the browser and receives a token after
+the passkey sign-in.
+
+Passkeys are bound to the exact host of `MULTICA_APP_URL`, which must be the
+final HTTPS origin from ACCO-54. Changing that host later makes every
+registered passkey unusable; everyone then needs a new enrollment link. The
+backend refuses to start in passkey-only mode with a non-HTTPS origin,
+credentials, query, fragment, invalid DNS host or unrelated RP ID. The accepted
+private release configuration is
+`MULTICA_APP_URL=https://patryk-pc.tailbdf3a9.ts.net` and
+`MULTICA_PASSKEY_RP_ID=patryk-pc.tailbdf3a9.ts.net` (DNS names are normalized
+to lowercase). Enroll only after ACCO-54 verifies this host's DNS, trusted
+HTTPS and private tailnet access; HTTPS, enrollment and device acceptance
+remain unverified. `Multica.local` is no longer a release requirement, and
+the future `multica.accordlens.com` domain belongs to ACCO-169's separate
+backlog rather than the current release gates.
+
+**First owner.** On the host, mint a one-time link and open it in a browser:
+
+```powershell
+docker @compose exec backend ./passkey-enroll --email owner@example.com
+```
+
+The command creates the account if it does not exist (or reuses an account
+created before passkey-only), prints a link valid once for 24 hours, and
+nothing else. The person who opens it registers a passkey and is signed in;
+on a fresh instance they then create the workspace and become its owner.
+
+**Members.** An owner or admin invites by email as before, then uses the link
+button next to the pending invitation and hands the copied link over in
+private. The invitee registers a passkey and accepts the invitation. Admins
+can mint a link only when that request creates a new account. Existing
+accounts, including legacy accounts without passkeys or workspace membership,
+must use the host operator's enrollment/recovery command. Reissuing a link
+for an account created by an earlier request also requires the operator.
+A previously minted
+admin link is rejected if the account acquires a passkey or workspace before
+the enrollment finishes. Only the host operator can issue recovery links.
+
+**Backup passkey.** Settings → Profile → Passkeys adds another passkey (for
+example, the phone's) and removes a lost one. The last passkey cannot be
+removed. Adding or removing needs a passkey sign-in in the last 10 minutes.
+
+**Lost every passkey.** There is no email or password fallback. The host
+operator runs the same `passkey-enroll --email` command; the person registers
+a new passkey with the link and removes the lost ones in settings.
+
+**Sessions.** A sign-in lasts the configured session TTL and slides while the
+app is in use. Signing out clears the browser's session cookie. Removing a
+passkey stops it from starting new sessions; sessions it already started stay
+valid until they sign out or expire.
 
 ## CI, review and upstream maintenance
 

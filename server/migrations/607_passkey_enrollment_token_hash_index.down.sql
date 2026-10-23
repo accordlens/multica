@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_passkey_enrollment_token_hash;

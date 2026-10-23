@@ -74,7 +74,7 @@ import {
   workspaceSubscriptionSummaryOptions,
 } from "@multica/core/billing";
 import { useWorkspaceId } from "@multica/core/hooks";
-import { useFeatureEnabled } from "@multica/core/config";
+import { useConfigStore, useFeatureEnabled } from "@multica/core/config";
 import { BILLING_WORKSPACE_SUBSCRIPTIONS_FLAG } from "@multica/core/feature-flags";
 import { useCurrentWorkspace } from "@multica/core/paths";
 import {
@@ -92,6 +92,7 @@ import {
   SettingsViewTabs,
 } from "./settings-layout";
 import { resolveSettingsLocation, settingsHref } from "./settings-navigation";
+import { InvitationPasskeyLinkButton } from "./invitation-passkey-link-button";
 import { formatStripeMinorAmount } from "./billing-format";
 import {
   isSingleSeatInvitePreview,
@@ -311,6 +312,7 @@ function InvitationRow({
   const locale = useLocale();
   const roleConfig = useRoleLabels();
   const rc = roleConfig[invitation.role];
+  const passkeyOnly = useConfigStore((state) => state.passkeyOnly);
 
   return (
     <div className="flex items-center gap-3 px-4 py-3">
@@ -327,6 +329,11 @@ function InvitationRow({
         </div>
       </div>
       <span className="w-24 shrink-0 text-body">{rc.label}</span>
+      {canManage && passkeyOnly && (
+        <span className="flex size-7 shrink-0 items-center justify-center">
+          <InvitationPasskeyLinkButton invitation={invitation} />
+        </span>
+      )}
       <span className="flex size-7 shrink-0 items-center justify-center">
         {canManage && (
           <Button

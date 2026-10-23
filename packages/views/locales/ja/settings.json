@@ -1386,7 +1386,10 @@
     "invitation_meta": "{{sent}} に送信 · {{expires}} に期限切れ",
     "revoke_invitation_aria": "{{email}} への招待を取り消す",
     "seats_used": "{{purchased}} 席中 {{used}} 席を使用",
-    "manage_seats": "席を管理"
+    "manage_seats": "席を管理",
+    "copy_passkey_link_aria": "{{email}} の登録リンクをコピー",
+    "toast_passkey_link_copied": "登録リンクをコピーしました。24 時間、一度だけ使えます。",
+    "toast_passkey_link_failed": "登録リンクを作成できませんでした"
   },
   "integrations": {
     "status_connected": "接続済み",
@@ -1432,5 +1435,22 @@
     "mcp": "管理者が追加してワークスペースで共有し、エージェントごとに割り当てます。",
     "apps": "自分のアカウントで Composio 経由で承認し、自分が所有するエージェントで有効にします。",
     "plugins": "インストールするとツール、定期フック、ストレージを追加でき、プラグインごとに権限を付与します。"
+  },
+  "passkeys": {
+    "title": "パスキー",
+    "description": "1 台を失ってもサインインできるよう、別のデバイスに予備のパスキーを用意してください。",
+    "add": "パスキーを追加",
+    "adding": "パスキーを待っています…",
+    "created": "{{date}} に追加",
+    "last_used": "最終使用 {{date}}",
+    "never_used": "未使用",
+    "remove_aria": "パスキー {{name}} を削除",
+    "only_one_hint": "削除する前に予備のパスキーを追加してください。",
+    "reauth_required": "安全のため、一度サインアウトしてパスキーで再度サインインし、10 分以内にもう一度お試しください。",
+    "remove_title": "パスキーを削除しますか？",
+    "remove_description": "{{name}} はサインインに使えなくなります。すでにサインイン済みのデバイスは、サインアウトするかセッションが切れるまでサインインしたままです。",
+    "toast_added": "パスキーを追加しました",
+    "toast_removed": "パスキーを削除しました",
+    "toast_failed": "パスキーを更新できませんでした"
   }
 }

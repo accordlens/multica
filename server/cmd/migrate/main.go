@@ -140,6 +140,9 @@ var pgBigmOperatorClass = extensionOperatorClass{
 // they are still pending: a fresh self-hosted install, which is exactly where an
 // interrupted build would otherwise leave a permanently unusable index.
 var concurrentIndexCleanups = map[string]string{
+	"605_webauthn_credential_credential_id_index":               "idx_webauthn_credential_credential_id",
+	"606_webauthn_credential_user_id_index":                     "idx_webauthn_credential_user_id",
+	"607_passkey_enrollment_token_hash_index":                   "idx_passkey_enrollment_token_hash",
 	"602_team_chat_protected_tasks_index":                       "idx_chat_protected_task_id",
 	"586_team_chat_participant_identity":                        "idx_chat_participant_identity",
 	"587_team_chat_participant_user":                            "idx_chat_participant_user",
