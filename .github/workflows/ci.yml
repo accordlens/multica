@@ -900,6 +900,9 @@ jobs:
       - name: Test UI performance comparison runner
         run: bash scripts/perf-compare.test.sh
 
+      - name: Test knowledge benchmark scorer and holdout guards
+        run: node --test scripts/kb-bench.test.mjs scripts/kb-bench-package.test.mjs
+
       - name: Verify reserved-slugs.ts is up to date
         # Re-runs the generator and fails on any drift from the
         # checked-in TypeScript output. The Go side embeds the JSON
