@@ -45,6 +45,7 @@ import {
 } from "./charts";
 import { CustomPricingDialog } from "./custom-pricing-dialog";
 import { useT } from "../../i18n";
+import { RuntimeAccountUsage } from "./account-usage";
 
 // Single source of truth for the period selector. KPIs, the When-chart, the
 // Cost-by tabs, and the CSV export all read from the same `days` value so
@@ -143,8 +144,8 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
   // subscribe on their own and pass pricings as a memo dep there.
   useCustomPricingStore((s) => s.pricings);
 
-  if (loading) return <UsageSkeleton />;
-  if (usage.length === 0) return <UsageEmpty />;
+  if (loading) return <div className="space-y-5"><RuntimeAccountUsage runtimeId={runtimeId} /><UsageSkeleton /></div>;
+  if (usage.length === 0) return <div className="space-y-5"><RuntimeAccountUsage runtimeId={runtimeId} /><UsageEmpty /></div>;
 
   // Slice the cached 180-day window into the user's selected sub-window AND
   // the immediately prior window of equal length. The KPI delta ("+18% vs
@@ -179,6 +180,7 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
 
   return (
     <div className="space-y-5">
+      <RuntimeAccountUsage runtimeId={runtimeId} />
       {/* Page-wide period selector. Lives at the top because it controls
           basically everything below: the KPI numbers and labels, the
           daily / weekly chart window, and the cost-by aggregations. The

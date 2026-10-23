@@ -477,5 +477,29 @@
     "table_cache_r": "Cache L",
     "table_cache_w": "Cache É",
     "no_data": "Aucune donnée de consommation pour l'instant"
+  },
+  "account_usage": {
+    "title": "Compte fournisseur partagé",
+    "unknown": "INCONNU",
+    "fresh": "Relevé récent",
+    "stale": "Relevé périmé",
+    "availability_unknown": "Disponibilité inconnue",
+    "availability_available": "Disponible lors du relevé",
+    "availability_rate_limited": "Limite atteinte lors du relevé",
+    "shared": "Partagé par {{count}} environnements visibles",
+    "total": "Total",
+    "used": "Utilisé",
+    "remaining": "Restant",
+    "window": "Période",
+    "window_unknown": "INCONNUE",
+    "window_fixed": "Fixe",
+    "window_rolling": "Glissante",
+    "reset": "Réinitialisation",
+    "observed": "Relevé",
+    "source": "Source manuelle",
+    "source_claude_code_usage": "Claude Code /usage",
+    "source_claude_settings_usage": "Claude Paramètres → Utilisation",
+    "refresh": "Vérifiez l’utilisation chez le fournisseur et enregistrez un relevé récent avant de relancer l’exécution existante.",
+    "notice": "Enregistrer un relevé ne réinitialise aucune limite et ne relance aucune exécution."
   }
 }

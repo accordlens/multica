@@ -1,4 +1,5 @@
 import type { ZodType } from "zod";
+import { AccountUsageProjectionSchema, EMPTY_ACCOUNT_USAGE, type AccountUsageProjection } from "../runtimes/account-usage";
 import type { IssueWakeup, IssueWakeupInput, IssueWakeupSummaryRow, PausedWakeup, SystemWakeup, WakeupRun, WorkspaceSystemWakeup } from "../types/issue-wakeup";
 import type { WorkspaceWakeupPage, WorkspaceWakeupFilters } from "../types/issue-wakeup";
 import { WorkspaceWakeupPageSchema, IssueWakeupSchema, IssueWakeupSummaryRowSchema, PausedWakeupSchema, SystemWakeupSchema, WakeupRunSchema, WorkspaceSystemWakeupSchema } from "./schemas";
@@ -2478,6 +2479,13 @@ export class ApiClient {
       `/api/workspaces/${workspaceId}/runtime-profiles/${profileId}`,
       { method: "DELETE" },
     );
+  }
+
+  async getRuntimeAccountUsage(runtimeId: string): Promise<AccountUsageProjection> {
+    const raw = await this.fetch<unknown>(`/api/runtimes/${runtimeId}/usage/account`);
+    return parseWithFallback(raw, AccountUsageProjectionSchema, EMPTY_ACCOUNT_USAGE, {
+      endpoint: "GET /api/runtimes/:id/usage/account",
+    });
   }
 
   async getRuntimeUsage(

@@ -18,6 +18,7 @@ import (
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
+	"github.com/multica-ai/multica/server/pkg/accountusage"
 	"github.com/multica-ai/multica/server/pkg/agent"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -53,13 +54,15 @@ type AgentRuntimeResponse struct {
 }
 
 func runtimeToResponse(rt db.AgentRuntime) AgentRuntimeResponse {
-	var metadata any
+	var metadata map[string]any
 	if rt.Metadata != nil {
 		json.Unmarshal(rt.Metadata, &metadata)
 	}
 	if metadata == nil {
 		metadata = map[string]any{}
 	}
+	// Account snapshots use the runtime read gate, not governance-list access.
+	delete(metadata, accountusage.MetadataKey)
 
 	return AgentRuntimeResponse{
 		ID:           uuidToString(rt.ID),

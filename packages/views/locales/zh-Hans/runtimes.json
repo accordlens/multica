@@ -461,5 +461,29 @@
     "table_cache_r": "缓存读",
     "table_cache_w": "缓存写",
     "no_data": "还没有使用数据"
+  },
+  "account_usage": {
+    "title": "共享服务商账户",
+    "unknown": "未知",
+    "fresh": "记录有效",
+    "stale": "记录已过期",
+    "availability_unknown": "可用状态未知",
+    "availability_available": "记录时可用",
+    "availability_rate_limited": "记录时已达限额",
+    "shared": "{{count}} 个可见运行时共享",
+    "total": "上限",
+    "used": "已用",
+    "remaining": "剩余",
+    "window": "周期",
+    "window_unknown": "未知",
+    "window_fixed": "固定",
+    "window_rolling": "滚动",
+    "reset": "重置时间",
+    "observed": "记录时间",
+    "source": "手动记录来源",
+    "source_claude_code_usage": "Claude Code /usage",
+    "source_claude_settings_usage": "Claude 设置 → 使用情况",
+    "refresh": "重试现有运行前，请查看服务商的使用情况并保存新记录。",
+    "notice": "保存记录不会重置限额或恢复运行。"
   }
 }

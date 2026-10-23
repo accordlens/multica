@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "observation_id": "fixture-usage-20261023-0800",
+  "provider": "anthropic",
+  "account_ref": "fixture-owner-pool-a",
+  "scope": "subscription_account",
+  "availability": "available",
+  "limits": [
+    {
+      "id": "session",
+      "kind": "usage",
+      "unit": "percent",
+      "limit": 100,
+      "used": 37,
+      "remaining": null,
+      "window": { "kind": "rolling", "duration_seconds": 18000, "starts_at": null, "ends_at": null },
+      "reset_at": "2026-10-23T12:00:00+02:00",
+      "reset_timezone": "Europe/Warsaw"
+    },
+    {
+      "id": "weekly",
+      "kind": "usage",
+      "unit": "percent",
+      "limit": null,
+      "used": null,
+      "remaining": null,
+      "window": { "kind": "fixed", "duration_seconds": 604800, "starts_at": null, "ends_at": null },
+      "reset_at": null,
+      "reset_timezone": null
+    }
+  ],
+  "provenance": { "kind": "manual", "surface": "claude_code_usage", "evidence_ref": "synthetic-owner-note" },
+  "observed_at": "2026-10-23T08:00:00Z",
+  "stale_after_seconds": 900
+}

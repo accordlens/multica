@@ -10,6 +10,20 @@ import enRuntimes from "../../locales/en/runtimes.json";
 
 const TEST_RESOURCES = { en: { common: enCommon, runtimes: enRuntimes } };
 
+vi.mock("./account-usage", () => ({
+  RuntimeAccountUsage: ({ runtimeId }: { runtimeId: string }) => <div data-testid="account-usage">{runtimeId}</div>,
+}));
+
+it("keeps the account pool visible without run usage", () => {
+  usageOverride.rows = [];
+  try {
+    render(<UsageSection runtime={RUNTIME} />, { wrapper: Wrapper });
+    expect(screen.getByTestId("account-usage")).toHaveTextContent(RUNTIME.id);
+  } finally {
+    usageOverride.rows = null;
+  }
+});
+
 // The viewer's tz (Viewing layer) drives both the trend and the heatmap.
 const VIEWER_TZ = "Asia/Tokyo";
 

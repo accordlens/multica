@@ -461,5 +461,29 @@
     "table_cache_r": "캐시 R",
     "table_cache_w": "캐시 W",
     "no_data": "아직 사용량 데이터가 없습니다"
+  },
+  "account_usage": {
+    "title": "공유 제공업체 계정",
+    "unknown": "알 수 없음",
+    "fresh": "최신 기록",
+    "stale": "오래된 기록",
+    "availability_unknown": "사용 가능 여부 알 수 없음",
+    "availability_available": "기록 시점에 사용 가능",
+    "availability_rate_limited": "기록 시점에 사용 제한됨",
+    "shared": "표시 가능한 런타임 {{count}}개가 공유",
+    "total": "한도",
+    "used": "사용량",
+    "remaining": "잔여량",
+    "window": "기간",
+    "window_unknown": "알 수 없음",
+    "window_fixed": "고정",
+    "window_rolling": "이동",
+    "reset": "초기화",
+    "observed": "기록 시각",
+    "source": "수동 기록 출처",
+    "source_claude_code_usage": "Claude Code /usage",
+    "source_claude_settings_usage": "Claude 설정 → 사용량",
+    "refresh": "기존 실행을 재시도하기 전에 제공업체 사용량을 확인하고 최신 기록을 저장하세요.",
+    "notice": "기록을 저장해도 한도가 초기화되거나 실행이 재개되지 않습니다."
   }
 }

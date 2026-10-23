@@ -86,7 +86,12 @@ DO UPDATE SET
     runtime_mode = EXCLUDED.runtime_mode,
     status = EXCLUDED.status,
     device_info = EXCLUDED.device_info,
-    metadata = EXCLUDED.metadata,
+    metadata = (EXCLUDED.metadata - 'provider_account_usage_v1') ||
+        CASE WHEN agent_runtime.metadata ? 'provider_account_usage_v1'
+                  AND agent_runtime.owner_id IS NOT DISTINCT FROM COALESCE(EXCLUDED.owner_id, agent_runtime.owner_id)
+                  AND agent_runtime.provider = EXCLUDED.provider
+             THEN jsonb_build_object('provider_account_usage_v1', agent_runtime.metadata->'provider_account_usage_v1')
+             ELSE '{}'::jsonb END,
     owner_id = COALESCE(EXCLUDED.owner_id, agent_runtime.owner_id),
     last_seen_at = now(),
     updated_at = now()
@@ -120,11 +125,24 @@ DO UPDATE SET
     provider = EXCLUDED.provider,
     status = EXCLUDED.status,
     device_info = EXCLUDED.device_info,
-    metadata = EXCLUDED.metadata,
+    metadata = (EXCLUDED.metadata - 'provider_account_usage_v1') ||
+        CASE WHEN agent_runtime.metadata ? 'provider_account_usage_v1'
+                  AND agent_runtime.owner_id IS NOT DISTINCT FROM COALESCE(EXCLUDED.owner_id, agent_runtime.owner_id)
+                  AND agent_runtime.provider = EXCLUDED.provider
+             THEN jsonb_build_object('provider_account_usage_v1', agent_runtime.metadata->'provider_account_usage_v1')
+             ELSE '{}'::jsonb END,
     owner_id = COALESCE(EXCLUDED.owner_id, agent_runtime.owner_id),
     last_seen_at = now(),
     updated_at = now()
 RETURNING *, (xmax = 0) AS inserted;
+
+-- name: UpdateAgentRuntimeAccountUsage :one
+-- The caller holds LockAgentRuntime and rechecks owner and observation ordering.
+UPDATE agent_runtime
+SET metadata = jsonb_set(metadata, '{provider_account_usage_v1}', @snapshot::jsonb),
+    updated_at = now()
+WHERE id = @id AND owner_id = @owner_id
+RETURNING *;
 
 -- name: UpdateAgentRuntimeVisibility :one
 -- Toggles a runtime between 'private' (only owner can bind agents) and
@@ -237,9 +255,9 @@ WHERE id = $1;
 -- merely stops — daemon shutdown, laptop asleep — uses SetAgentRuntimeOffline
 -- and leaves no reason, because "wait for it" needs no explanation.
 --
--- Merged into metadata rather than a column: registration overwrites metadata
--- wholesale (`metadata = EXCLUDED.metadata`), so a runtime that comes back
--- drops the reason as a side effect of being usable again — there is no stale
+-- Merged into metadata rather than a column: registration replaces daemon-owned
+-- metadata (preserving only the server-owned account snapshot), so a runtime
+-- that comes back drops the reason as a side effect of being usable again — there is no stale
 -- explanation to clean up and no code path that has to remember to clear it.
 UPDATE agent_runtime
 SET status = 'offline',

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/multica-ai/multica/server/internal/cli"
+	"github.com/multica-ai/multica/server/pkg/accountusage"
 )
 
 var runtimeCmd = &cobra.Command{
@@ -82,6 +84,8 @@ func init() {
 	// runtime usage
 	runtimeUsageCmd.Flags().String("output", "table", "Output format: table or json")
 	runtimeUsageCmd.Flags().Int("days", 90, "Number of days of usage data to retrieve (max 365)")
+	runtimeUsageCmd.Flags().Bool("account", false, "Show the shared provider account snapshot separately from run usage")
+	runtimeUsageCmd.Flags().String("record-account-snapshot", "", "Record a manual account snapshot from a JSON file (runtime owner only; member credentials required)")
 
 	// runtime activity
 	runtimeActivityCmd.Flags().String("output", "table", "Output format: table or json")
@@ -138,6 +142,11 @@ func runRuntimeList(cmd *cobra.Command, _ []string) error {
 }
 
 func runRuntimeUsage(cmd *cobra.Command, args []string) error {
+	account, _ := cmd.Flags().GetBool("account")
+	snapshotFile, _ := cmd.Flags().GetString("record-account-snapshot")
+	if account || snapshotFile != "" {
+		return runRuntimeAccountUsage(cmd, args[0], snapshotFile)
+	}
 	client, err := newAPIClient(cmd)
 	if err != nil {
 		return err
@@ -177,6 +186,48 @@ func runRuntimeUsage(cmd *cobra.Command, args []string) error {
 	}
 	cli.PrintTable(os.Stdout, headers, rows)
 	return nil
+}
+
+func runRuntimeAccountUsage(cmd *cobra.Command, runtimeID, snapshotFile string) error {
+	client, err := newAPIClient(cmd)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := cli.APIContext(context.Background())
+	defer cancel()
+	path := "/api/runtimes/" + runtimeID + "/usage/account"
+	var projection accountusage.Projection
+	if snapshotFile != "" {
+		f, err := os.Open(snapshotFile)
+		if err != nil {
+			return fmt.Errorf("open account snapshot: %w", err)
+		}
+		defer f.Close()
+		data, err := io.ReadAll(io.LimitReader(f, accountusage.MaxSnapshotBytes+1))
+		if err != nil {
+			return fmt.Errorf("read account snapshot: %w", err)
+		}
+		snapshot, err := accountusage.Decode(data)
+		if err != nil {
+			return err
+		}
+		if err := snapshot.Validate(time.Now()); err != nil {
+			return err
+		}
+		if err := client.PutJSON(ctx, path, snapshot, &projection); err != nil {
+			return fmt.Errorf("record account snapshot: %w", err)
+		}
+		// Read the current shared projection back; a successful PUT is never
+		// evidence that a provider limit was reset or a run was resumed.
+	}
+	if err := client.GetJSON(ctx, path, &projection); err != nil {
+		return fmt.Errorf("get account snapshot: %w", err)
+	}
+	output, _ := cmd.Flags().GetString("output")
+	if output == "json" {
+		return cli.PrintJSON(os.Stdout, projection)
+	}
+	return printRuntimeAccountUsage(os.Stdout, projection)
 }
 
 func runRuntimeActivity(cmd *cobra.Command, args []string) error {

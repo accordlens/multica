@@ -1641,9 +1641,9 @@ type SetAgentRuntimeOfflineWithReasonParams struct {
 // merely stops — daemon shutdown, laptop asleep — uses SetAgentRuntimeOffline
 // and leaves no reason, because "wait for it" needs no explanation.
 //
-// Merged into metadata rather than a column: registration overwrites metadata
-// wholesale (`metadata = EXCLUDED.metadata`), so a runtime that comes back
-// drops the reason as a side effect of being usable again — there is no stale
+// Merged into metadata rather than a column: registration replaces daemon-owned
+// metadata (preserving only the server-owned account snapshot), so a runtime
+// that comes back drops the reason as a side effect of being usable again — there is no stale
 // explanation to clean up and no code path that has to remember to clear it.
 func (q *Queries) SetAgentRuntimeOfflineWithReason(ctx context.Context, arg SetAgentRuntimeOfflineWithReasonParams) error {
 	_, err := q.db.Exec(ctx, setAgentRuntimeOfflineWithReason, arg.ID, arg.OfflineReason)
@@ -1867,6 +1867,46 @@ func (q *Queries) UnbindUserAgentsFromRuntime(ctx context.Context, runtimeID pgt
 	return items, nil
 }
 
+const updateAgentRuntimeAccountUsage = `-- name: UpdateAgentRuntimeAccountUsage :one
+UPDATE agent_runtime
+SET metadata = jsonb_set(metadata, '{provider_account_usage_v1}', $1::jsonb),
+    updated_at = now()
+WHERE id = $2 AND owner_id = $3
+RETURNING id, workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, metadata, last_seen_at, created_at, updated_at, owner_id, legacy_daemon_id, visibility, profile_id, custom_name
+`
+
+type UpdateAgentRuntimeAccountUsageParams struct {
+	Snapshot []byte      `json:"snapshot"`
+	ID       pgtype.UUID `json:"id"`
+	OwnerID  pgtype.UUID `json:"owner_id"`
+}
+
+// The caller holds LockAgentRuntime and rechecks owner and observation ordering.
+func (q *Queries) UpdateAgentRuntimeAccountUsage(ctx context.Context, arg UpdateAgentRuntimeAccountUsageParams) (AgentRuntime, error) {
+	row := q.db.QueryRow(ctx, updateAgentRuntimeAccountUsage, arg.Snapshot, arg.ID, arg.OwnerID)
+	var i AgentRuntime
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.DaemonID,
+		&i.Name,
+		&i.RuntimeMode,
+		&i.Provider,
+		&i.Status,
+		&i.DeviceInfo,
+		&i.Metadata,
+		&i.LastSeenAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.OwnerID,
+		&i.LegacyDaemonID,
+		&i.Visibility,
+		&i.ProfileID,
+		&i.CustomName,
+	)
+	return i, err
+}
+
 const updateAgentRuntimeCustomName = `-- name: UpdateAgentRuntimeCustomName :one
 UPDATE agent_runtime
 SET custom_name = $1, updated_at = now()
@@ -2035,7 +2075,12 @@ DO UPDATE SET
     runtime_mode = EXCLUDED.runtime_mode,
     status = EXCLUDED.status,
     device_info = EXCLUDED.device_info,
-    metadata = EXCLUDED.metadata,
+    metadata = (EXCLUDED.metadata - 'provider_account_usage_v1') ||
+        CASE WHEN agent_runtime.metadata ? 'provider_account_usage_v1'
+                  AND agent_runtime.owner_id IS NOT DISTINCT FROM COALESCE(EXCLUDED.owner_id, agent_runtime.owner_id)
+                  AND agent_runtime.provider = EXCLUDED.provider
+             THEN jsonb_build_object('provider_account_usage_v1', agent_runtime.metadata->'provider_account_usage_v1')
+             ELSE '{}'::jsonb END,
     owner_id = COALESCE(EXCLUDED.owner_id, agent_runtime.owner_id),
     last_seen_at = now(),
     updated_at = now()
@@ -2139,7 +2184,12 @@ DO UPDATE SET
     provider = EXCLUDED.provider,
     status = EXCLUDED.status,
     device_info = EXCLUDED.device_info,
-    metadata = EXCLUDED.metadata,
+    metadata = (EXCLUDED.metadata - 'provider_account_usage_v1') ||
+        CASE WHEN agent_runtime.metadata ? 'provider_account_usage_v1'
+                  AND agent_runtime.owner_id IS NOT DISTINCT FROM COALESCE(EXCLUDED.owner_id, agent_runtime.owner_id)
+                  AND agent_runtime.provider = EXCLUDED.provider
+             THEN jsonb_build_object('provider_account_usage_v1', agent_runtime.metadata->'provider_account_usage_v1')
+             ELSE '{}'::jsonb END,
     owner_id = COALESCE(EXCLUDED.owner_id, agent_runtime.owner_id),
     last_seen_at = now(),
     updated_at = now()

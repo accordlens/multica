@@ -461,5 +461,29 @@
     "table_cache_r": "キャッシュ R",
     "table_cache_w": "キャッシュ W",
     "no_data": "まだ使用量データがありません"
+  },
+  "account_usage": {
+    "title": "共有プロバイダーアカウント",
+    "unknown": "不明",
+    "fresh": "最新の記録",
+    "stale": "古い記録",
+    "availability_unknown": "利用可否は不明",
+    "availability_available": "記録時点で利用可能",
+    "availability_rate_limited": "記録時点で利用制限中",
+    "shared": "{{count}} 件の表示可能なランタイムで共有",
+    "total": "上限",
+    "used": "使用済み",
+    "remaining": "残り",
+    "window": "期間",
+    "window_unknown": "不明",
+    "window_fixed": "固定",
+    "window_rolling": "ローリング",
+    "reset": "リセット",
+    "observed": "記録日時",
+    "source": "手動記録元",
+    "source_claude_code_usage": "Claude Code /usage",
+    "source_claude_settings_usage": "Claude 設定 → 使用状況",
+    "refresh": "既存の実行を再試行する前に、プロバイダーの使用状況を確認し、新しい記録を保存してください。",
+    "notice": "記録を保存しても、制限のリセットや実行の再開は行われません。"
   }
 }

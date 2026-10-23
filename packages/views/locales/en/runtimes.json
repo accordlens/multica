@@ -477,5 +477,29 @@
     "table_cache_r": "Cache R",
     "table_cache_w": "Cache W",
     "no_data": "No usage data yet"
+  },
+  "account_usage": {
+    "title": "Shared provider account",
+    "unknown": "UNKNOWN",
+    "fresh": "Fresh snapshot",
+    "stale": "Stale snapshot",
+    "availability_unknown": "Availability unknown",
+    "availability_available": "Available at observation",
+    "availability_rate_limited": "Rate limited at observation",
+    "shared": "Shared by {{count}} visible runtimes",
+    "total": "Total",
+    "used": "Used",
+    "remaining": "Remaining",
+    "window": "Window",
+    "window_unknown": "UNKNOWN",
+    "window_fixed": "Fixed",
+    "window_rolling": "Rolling",
+    "reset": "Reset",
+    "observed": "Observed",
+    "source": "Manual source",
+    "source_claude_code_usage": "Claude Code /usage",
+    "source_claude_settings_usage": "Claude Settings → Usage",
+    "refresh": "Check the provider usage view and record a fresh snapshot before retrying the existing run.",
+    "notice": "Recording a snapshot does not reset a limit or resume a run."
   }
 }

@@ -5,6 +5,7 @@ export const runtimeKeys = {
   all: (wsId: string) => ["runtimes", wsId] as const,
   list: (wsId: string) => [...runtimeKeys.all(wsId), "list"] as const,
   listMine: (wsId: string) => [...runtimeKeys.all(wsId), "list", "mine"] as const,
+  accountUsage: (wsId: string, rid: string) => [...runtimeKeys.all(wsId), "account-usage", rid] as const,
   usage: (rid: string, days: number, tz: string) =>
     ["runtimes", "usage", rid, days, tz] as const,
   usageByAgent: (rid: string, days: number, tz: string) =>
@@ -13,6 +14,15 @@ export const runtimeKeys = {
   usageByHour: (rid: string, days: number, tz: string) =>
     ["runtimes", "usage", "by-hour", rid, days, tz] as const,
 };
+
+export function runtimeAccountUsageOptions(wsId: string, runtimeId: string) {
+  return queryOptions({
+    queryKey: runtimeKeys.accountUsage(wsId, runtimeId),
+    queryFn: () => api.getRuntimeAccountUsage(runtimeId),
+    staleTime: 60 * 1000,
+    retry: false,
+  });
+}
 
 // `tz` is the viewer's IANA name — all reports follow the viewer's tz.
 export function runtimeUsageOptions(
