@@ -34,6 +34,7 @@ const mockApiVerifyCode = vi.hoisted(() => vi.fn());
 const mockApiSetToken = vi.hoisted(() => vi.fn());
 const mockApiGetMe = vi.hoisted(() => vi.fn());
 const mockApiIssueCliToken = vi.hoisted(() => vi.fn());
+const mockLoginWithPasskey = vi.hoisted(() => vi.fn());
 const mockSetQueryData = vi.hoisted(() => vi.fn());
 // Mutable slice of auth state the component subscribes to.
 const mockAuthState = vi.hoisted(() => ({ expired: false }));
@@ -60,6 +61,7 @@ vi.mock("@multica/core/auth", () => ({
       getState: () => ({
         sendCode: mockSendCode,
         verifyCode: mockVerifyCode,
+        loginWithPasskey: mockLoginWithPasskey,
       }),
     },
   ),
@@ -501,7 +503,7 @@ describe("LoginPage", () => {
     expect(localStorage.getItem("multica_token")).toBe("existing-jwt");
   });
 
-  it("CLI authorize button redirects to callback URL", async () => {
+  it("CLI authorize exchanges the stored browser session before redirecting", async () => {
     localStorage.setItem("multica_token", "existing-jwt");
     // Cookie attempt fails, localStorage fallback succeeds
     mockApiGetMe
@@ -512,6 +514,7 @@ describe("LoginPage", () => {
         name: "Test User",
       });
     const onTokenObtained = vi.fn();
+    mockApiIssueCliToken.mockResolvedValueOnce({ token: "cli-only-token" });
 
     render(
       <LoginPage
@@ -531,9 +534,48 @@ describe("LoginPage", () => {
     await user.click(screen.getByRole("button", { name: /^authorize$/i }));
 
     expect(onTokenObtained).toHaveBeenCalled();
+    expect(mockApiIssueCliToken).toHaveBeenCalledOnce();
     expect(window.location.href).toContain(
-      "http://localhost:9876/callback?token=existing-jwt&state=abc",
+      "http://localhost:9876/callback?token=cli-only-token&state=abc",
     );
+    expect(localStorage.getItem("multica_token")).toBe("existing-jwt");
+  });
+
+  it("CLI passkey sign-in exchanges the fresh browser JWT before redirecting", async () => {
+    configStore.setState({ passkeyOnly: true });
+    mockLoginWithPasskey.mockResolvedValueOnce({ token: "fresh-browser-jwt" });
+    mockApiIssueCliToken.mockResolvedValueOnce({ token: "cli-only-token" });
+    const onTokenObtained = vi.fn();
+    try {
+      renderWithI18n(<LoginPage onSuccess={onSuccess} onTokenObtained={onTokenObtained}
+        cliCallback={{ url: "http://localhost:9876/callback", state: "passkey-state" }} />);
+      await userEvent.setup().click(screen.getByRole("button", { name: "Sign in with passkey" }));
+      await waitFor(() => expect(mockApiIssueCliToken).toHaveBeenCalledOnce());
+      expect(mockApiSetToken).toHaveBeenCalledWith("fresh-browser-jwt");
+      expect(localStorage.getItem("multica_token")).toBe("fresh-browser-jwt");
+      expect(window.location.href).toBe("http://localhost:9876/callback?token=cli-only-token&state=passkey-state");
+      expect(onTokenObtained).toHaveBeenCalledOnce();
+      expect(onSuccess).not.toHaveBeenCalled();
+    } finally {
+      configStore.setState({ passkeyOnly: false });
+    }
+  });
+
+  it("CLI passkey sign-in never forwards a browser JWT when the exchange fails", async () => {
+    configStore.setState({ passkeyOnly: true });
+    mockLoginWithPasskey.mockResolvedValueOnce({ token: "fresh-browser-jwt" });
+    mockApiIssueCliToken.mockRejectedValueOnce(new Error("exchange unavailable"));
+    const onTokenObtained = vi.fn();
+    try {
+      renderWithI18n(<LoginPage onSuccess={onSuccess} onTokenObtained={onTokenObtained}
+        cliCallback={{ url: "http://localhost:9876/callback", state: "passkey-state" }} />);
+      await userEvent.setup().click(screen.getByRole("button", { name: "Sign in with passkey" }));
+      await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+      expect(window.location.href).toBe("http://localhost:3000");
+      expect(onTokenObtained).not.toHaveBeenCalled();
+    } finally {
+      configStore.setState({ passkeyOnly: false });
+    }
   });
 
   it("'Use a different account' returns to email step", async () => {

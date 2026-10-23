@@ -206,8 +206,11 @@ on a fresh instance they then create the workspace and become its owner.
 **Members.** An owner or admin invites by email as before, then uses the link
 button next to the pending invitation and hands the copied link over in
 private. The invitee registers a passkey and accepts the invitation. Admins
-can only mint links for people without a passkey or any workspace, so they
-can never attach a passkey to someone else's account. A previously minted
+can mint a link only when that request creates a new account. Existing
+accounts, including legacy accounts without passkeys or workspace membership,
+must use the host operator's enrollment/recovery command. Reissuing a link
+for an account created by an earlier request also requires the operator.
+A previously minted
 admin link is rejected if the account acquires a passkey or workspace before
 the enrollment finishes. Only the host operator can issue recovery links.
 

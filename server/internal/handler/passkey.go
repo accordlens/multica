@@ -566,10 +566,9 @@ func (h *Handler) DeleteMyPasskey(w http.ResponseWriter, r *http.Request) {
 // The admin hands the link over out of band; the invitee registers a passkey
 // with it and then accepts the invitation as usual.
 //
-// An account that already has a passkey or belongs to any workspace is
-// refused: a workspace admin must never be able to attach a passkey to
-// someone else's existing account. Those people sign in with their own
-// passkey, and lost-key recovery stays with the host operator.
+// Existing accounts are refused, including legacy accounts without a passkey
+// or workspace: an admin cannot establish ownership of those accounts.
+// Reissuing a link or recovering an existing account stays with the operator.
 func (h *Handler) CreateInvitationPasskeyLink(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "id")
 	requester, ok := h.workspaceMember(w, r, workspaceID)
@@ -611,6 +610,9 @@ func (h *Handler) CreateInvitationPasskeyLink(w http.ResponseWriter, r *http.Req
 		}
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, "failed to load account")
+		return
+	default:
+		writeError(w, http.StatusConflict, passkey.ErrUserNotEnrollable.Error())
 		return
 	}
 	// Enrollment and link issuance use the same account lock, so an admin

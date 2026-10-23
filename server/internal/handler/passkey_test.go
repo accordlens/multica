@@ -416,6 +416,17 @@ func TestInvitationPasskeyLink(t *testing.T) {
 	t.Run("existing workspace member can not be taken over", func(t *testing.T) {
 		call(t, invite(t, handlerTestEmail), http.StatusConflict)
 	})
+	t.Run("existing account without memberships or passkeys stays operator controlled", func(t *testing.T) {
+		user := passkeyTestUser(t)
+		call(t, invite(t, user.Email), http.StatusConflict)
+		var links int
+		if err := testPool.QueryRow(context.Background(), `SELECT count(*) FROM passkey_enrollment_token WHERE user_id = $1`, user.ID).Scan(&links); err != nil {
+			t.Fatal(err)
+		}
+		if links != 0 {
+			t.Fatalf("admin minted %d enrollment links for an existing account", links)
+		}
+	})
 	t.Run("invitation from another workspace", func(t *testing.T) {
 		otherWS := dbfx.Insert(t, "workspace", testutil.Cols{"name": "Other", "slug": "passkey-other-" + uuid.NewString()[:8], "issue_prefix": "OTH"})
 		inv := dbfx.Insert(t, "workspace_invitation", testutil.Cols{
