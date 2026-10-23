@@ -114,7 +114,11 @@ the pointer without rewriting the immutable report.
 The source API projects native run evidence and authorized issue/comment
 artifacts automatically. Private chat and source-context snapshot attachments
 are excluded. Stored artifact pointers are rechecked for current ownership on
-read. Supplied artifact hashes describe the reporter's source; authoritative
+read. Issue-facing provenance also excludes chat-protected tasks and objects,
+including retained private/unknown origins after live chat pointers disappear.
+Missing task classification fails closed. These links cannot publish private
+conversation evidence into a shared issue. Supplied artifact hashes describe
+the reporter's source; authoritative
 script report validation belongs to the configured runner. A pointer or an
 agent's statement cannot establish PASS. Unreported external Git changes cannot
 be discovered from database links; the script gate checks the actual checkout.

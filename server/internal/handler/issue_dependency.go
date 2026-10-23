@@ -223,8 +223,8 @@ func (h *Handler) CreateIssueDependency(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	if req.Condition.Kind == "run_completed" {
-		run, err := h.Queries.GetAgentTask(r.Context(), parseUUID(req.Condition.RunID))
-		if err != nil || run.IssueID != prerequisite.ID {
+		run, err := h.Queries.GetIssueProvenanceRun(r.Context(), db.GetIssueProvenanceRunParams{RunID: parseUUID(req.Condition.RunID), IssueID: prerequisite.ID, WorkspaceID: issue.WorkspaceID})
+		if err != nil {
 			writeError(w, 404, "source run not found")
 			return
 		}

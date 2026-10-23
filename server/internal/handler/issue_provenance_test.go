@@ -178,3 +178,40 @@ func TestIssueProvenancePRCanLinkMultipleTasksWithoutWebhook(t *testing.T) {
 	run := dbfx.Task(t, agent, testutil.Cols{"issue_id": b, "runtime_id": runtime, "status": "completed"})
 	testutil.Call(t, testHandler.CreateIssueProvenance, relationRequest("POST", b, "", map[string]any{"run_id": run, "kind": "pull_request", "url": "https://github.com/acme/provenance-shared/pull/2"})).Want(200)
 }
+
+func TestIssueProvenanceRetainsChatPrivacyAfterLivePointersDisappear(t *testing.T) {
+	issue, dependent := dbfx.Issue(t, "public sources"), dbfx.Issue(t, "dependent")
+	runtime := dbfx.Runtime(t, "protected-source-runtime")
+	agent := dbfx.Agent(t, "protected-source-agent", runtime)
+	visible := dbfx.Task(t, agent, testutil.Cols{"issue_id": issue, "runtime_id": runtime, "status": "completed"})
+	private := dbfx.Task(t, agent, testutil.Cols{"issue_id": issue, "runtime_id": runtime, "status": "completed"})
+	unknown := dbfx.Task(t, agent, testutil.Cols{"issue_id": issue, "runtime_id": runtime, "status": "completed"})
+	unclassified := dbfx.Task(t, agent, testutil.Cols{"issue_id": issue, "runtime_id": runtime, "status": "completed"})
+	for _, run := range []string{visible, private, unknown, unclassified} {
+		raw := nativeSourceResult(t, run, strings.Repeat("a", 40), "", "passed")
+		dbfx.Exec(t, `UPDATE agent_task_queue SET result=$1::jsonb WHERE id=$2`, string(raw), run)
+	}
+	// The live chat FK is already NULL. Retained private/unknown origins and a
+	// missing classification must still be denied by the issue-facing API.
+	dbfx.Exec(t, `UPDATE chat_protected_task SET is_private=true,chat_session_id=$1 WHERE task_id=$2`, "00000000-0000-0000-0000-000000000001", private)
+	dbfx.Exec(t, `UPDATE chat_protected_task SET is_private=true,chat_session_id=NULL WHERE task_id=$1`, unknown)
+	dbfx.Exec(t, `DELETE FROM chat_protected_task WHERE task_id=$1`, unclassified)
+	for _, run := range []string{private, unknown, unclassified} {
+		testutil.Call(t, testHandler.CreateIssueProvenance, relationRequest("POST", issue, "", map[string]any{"run_id": run, "kind": "commit", "commit_sha": strings.Repeat("b", 40)})).Want(404)
+		testutil.Call(t, testHandler.CreateIssueDependency, relationRequest("POST", dependent, "", map[string]any{"issue_id": issue, "condition": map[string]string{"kind": "run_completed", "run_id": run}})).Want(404)
+	}
+	file := dbfx.Insert(t, "attachment", testutil.Cols{"workspace_id": testWorkspaceID, "issue_id": issue, "task_id": visible, "uploader_type": "member", "uploader_id": testUserID, "filename": "retained-private-file", "url": "retained-private-key-" + workflowTestSuffix(), "content_type": "text/plain", "size_bytes": 1})
+	body := map[string]any{"run_id": visible, "kind": "artifact", "artifact_id": file, "sha256": strings.Repeat("d", 64)}
+	testutil.Call(t, testHandler.CreateIssueProvenance, relationRequest("POST", issue, "", body)).Want(200)
+	dbfx.Exec(t, `INSERT INTO chat_protected_object (url,attachment_id) SELECT url,id FROM attachment WHERE id=$1`, file)
+	testutil.Call(t, testHandler.CreateIssueProvenance, relationRequest("POST", issue, "", body)).Want(404)
+	var out struct {
+		Links     []IssueProvenanceLink `json:"links"`
+		Runs      []map[string]any      `json:"runs"`
+		Artifacts []map[string]any      `json:"artifacts"`
+	}
+	testutil.Call(t, testHandler.ListIssueProvenance, relationRequest("GET", issue, "", nil)).Want(200).JSON(&out)
+	if len(out.Runs) != 1 || out.Runs[0]["run_id"] != visible || len(out.Links) != 1 || out.Links[0].RunID != visible || out.Links[0].Kind != "commit" || len(out.Artifacts) != 0 {
+		t.Fatalf("protected run or file metadata leaked: %+v", out)
+	}
+}

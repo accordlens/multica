@@ -74,8 +74,8 @@ func (h *Handler) ListIssueProvenance(w http.ResponseWriter, r *http.Request) {
 					if parseErr != nil {
 						continue
 					}
-					a, err := h.Queries.GetAttachment(r.Context(), db.GetAttachmentParams{ID: artifactID, WorkspaceID: issue.WorkspaceID})
-					if err != nil || a.IssueID != issue.ID || (a.ChatSessionID.Valid || a.SourceContextID.Valid) {
+					_, err := h.Queries.GetIssueProvenanceArtifact(r.Context(), db.GetIssueProvenanceArtifactParams{ID: artifactID, WorkspaceID: issue.WorkspaceID, IssueID: issue.ID, RunID: run.ID})
+					if err != nil {
 						continue
 					}
 				}
@@ -262,8 +262,8 @@ func (h *Handler) mutateIssueProvenance(w http.ResponseWriter, r *http.Request, 
 			if !valid {
 				return
 			}
-			a, err := q.GetAttachment(r.Context(), db.GetAttachmentParams{ID: id, WorkspaceID: issue.WorkspaceID})
-			if err != nil || a.IssueID != issue.ID || (a.ChatSessionID.Valid || a.SourceContextID.Valid) || (a.TaskID.Valid && a.TaskID != run.ID) {
+			a, err := q.GetIssueProvenanceArtifact(r.Context(), db.GetIssueProvenanceArtifactParams{ID: id, WorkspaceID: issue.WorkspaceID, IssueID: issue.ID, RunID: run.ID})
+			if err != nil {
 				writeError(w, 404, "artifact not found")
 				return
 			}
