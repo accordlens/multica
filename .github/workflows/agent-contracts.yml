@@ -1,0 +1,30 @@
+name: Agent contracts
+
+on:
+  pull_request:
+    paths:
+      - docs/agent-contracts/**
+      - scripts/role-contracts*.mjs
+      - .github/workflows/agent-contracts.yml
+  push:
+    branches: [main]
+    paths:
+      - docs/agent-contracts/**
+      - scripts/role-contracts*.mjs
+      - .github/workflows/agent-contracts.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Check contracts, preservation regressions and offline pilot
+        run: node --test scripts/role-contracts.test.mjs

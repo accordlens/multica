@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "replace-with-role-name",
+  "version": "1.0.0",
+  "purpose": "What observable results make this role effective in this company?",
+  "responsibilities": ["A concrete responsibility with an input and deliverable."],
+  "knowledge": ["Knowledge required to make the role's decisions."],
+  "skills": ["A capability; this is not an automatic runtime skill binding."],
+  "decision_boundaries": ["A decision the role can make and an escalation boundary."],
+  "goals": [
+    {"id": "observable-goal", "behavior": "An observable behavior in a concrete situation.", "anti_example": "A plausible behavior that fails this goal.", "evaluation": "An independent, reproducible way to distinguish these behaviors."}
+  ]
+}

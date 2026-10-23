@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "glossary",
+  "version": "1.0.0",
+  "origin": "Original project terminology, not the ASD-STE100 dictionary.",
+  "terms": [
+    {"key": "issue", "en": "issue", "pl": "zadanie", "meaning": "The work item identified by issue.id; task in Polish product discussion means this work item."},
+    {"key": "task_id", "en": "run", "pl": "wykonanie", "meaning": "agent_task_queue.id; the API and CLI also call this a task or run. Do not create a second run ID."},
+    {"key": "workflow", "en": "workflow", "pl": "proces", "meaning": "The existing issue_workflow definition, if known."},
+    {"key": "status_key", "en": "step", "pl": "etap", "meaning": "The existing workflow step's status_key, not an invented stage UUID."},
+    {"key": "source_revision", "en": "source revision", "pl": "rewizja kodu", "meaning": "The exact Git commit SHA. Dirty changes require separate evidence and cannot reuse a clean PASS."},
+    {"key": "report", "en": "report", "pl": "raport", "meaning": "A check result identified by a content hash and an inspectable reference."},
+    {"key": "artifact", "en": "artifact", "pl": "artefakt", "meaning": "A retained output identified by its content hash; an attachment ID is used only after the platform returns it."},
+    {"key": "fact", "en": "fact", "pl": "fakt", "meaning": "An observation supported by a cited source."},
+    {"key": "hypothesis", "en": "hypothesis", "pl": "hipoteza", "meaning": "An explanation that still needs verification."},
+    {"key": "unknown", "en": "unknown", "pl": "nieznane", "meaning": "Information for which sufficient evidence is unavailable."},
+    {"key": "blocked", "en": "blocked", "pl": "zablokowane", "meaning": "A verified missing dependency prevents the next required action."},
+    {"key": "needs_changes", "en": "needs changes", "pl": "wymaga poprawek", "meaning": "A result requires repair or a resolved decision before review can pass."},
+    {"key": "pass", "en": "pass", "pl": "kontrola zaliczona", "meaning": "Only the recorded check's scope passed at its exact revision."},
+    {"key": "fail", "en": "fail", "pl": "kontrola niezaliczona", "meaning": "The recorded check did not meet its expected result."},
+    {"key": "in_review", "en": "awaiting review", "pl": "oczekuje na ocenę", "meaning": "The delivered work awaits the appropriate acceptance; it does not imply done."},
+    {"key": "handoff", "en": "handoff", "pl": "przekazanie pracy", "meaning": "The result, provenance, evidence, uncertainty and a concrete requested action."}
+  ],
+  "prose_warnings": ["all done", "na pewno działa", "wszystko gotowe"]
+}

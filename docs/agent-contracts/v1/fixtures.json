@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "kind": "hand_authored_synthetic_pairs",
+  "cases": [
+    {
+      "id": "success", "message_type": "handoff", "status": "pass", "source_status": "pass", "claim_kind": "fact",
+      "en": {"objective": "Verify the controlled fixture and hand it to QA.", "baseline": "All done, the controlled fixture has been checked and the checks look good so this should now be ready for someone to take a look whenever they can.", "outcome": "The controlled fixture passed its recorded check.", "fact": "The fixture command `node --version` returned exit code 0 on 2026-10-20. This does not verify the application.", "next_step": "QA must repeat the applicable checks for this revision. Do not merge before independent approval and required checks."},
+      "pl": {"objective": "Sprawdzić kontrolowany przypadek i przekazać go do QA.", "baseline": "Wszystko gotowe, kontrolowany przypadek został sprawdzony i kontrole wyglądają dobrze, więc można już chyba przekazać go dalej, kiedy ktoś będzie miał czas na zapoznanie się ze zmianami.", "outcome": "Kontrola syntetycznego przypadku zakończyła się wynikiem pass.", "fact": "Polecenie przypadku `node --version` zwróciło kod wyjścia 0 dnia 2026-10-20. To nie potwierdza działania aplikacji.", "next_step": "QA musi powtórzyć właściwe kontrole tej rewizji. Nie scalać przed niezależną akceptacją i wymaganymi kontrolami."}
+    },
+    {
+      "id": "blocker", "message_type": "blocker", "status": "blocked", "source_status": "blocked", "claim_kind": "fact",
+      "en": {"objective": "Report the missing test dependency.", "baseline": "The test is unfortunately not going anywhere and perhaps someone should do something about the dependency.", "outcome": "The test cannot start because its fixture service is unavailable.", "fact": "The fixture returned `ECONNREFUSED` at 127.0.0.1:15432. The test did not run. Retry count: 1.", "next_step": "Start the isolated fixture service and repeat the recorded test. No production action is required."},
+      "pl": {"objective": "Zgłosić brak zależności testu.", "baseline": "Test niestety stoi i być może ktoś powinien coś zrobić z zależnością, bo na ten moment nie ma postępu.", "outcome": "Test nie może ruszyć, bo syntetyczna usługa jest niedostępna.", "fact": "Przypadek zwrócił `ECONNREFUSED` dla 127.0.0.1:15432. Test nie został uruchomiony. Liczba prób: 1.", "next_step": "Uruchomić odizolowaną usługę testową i powtórzyć zapisany test. Zmiana produkcji nie jest potrzebna."}
+    },
+    {
+      "id": "unknown_fact", "message_type": "question", "status": "unknown", "source_status": "unknown", "claim_kind": "unknown",
+      "en": {"objective": "Keep unreported usage explicit.", "baseline": "Usage is probably fine and we can likely work out the actual details at some point later.", "outcome": "The provider cost is unknown.", "fact": "The fixture has no provider usage report for run 11111111-1111-4111-8111-111111111111. Cost is unknown; it is not USD 0.", "next_step": "Read the recorded provider usage when it becomes available. Do not infer a price from missing data."},
+      "pl": {"objective": "Jawnie zachować brak danych o użyciu.", "baseline": "Z użyciem chyba wszystko jest w porządku i szczegóły będzie można pewnie ustalić kiedyś później.", "outcome": "Koszt providera jest nieznany.", "fact": "Brakuje raportu użycia providera dla syntetycznego runu 11111111-1111-4111-8111-111111111111. Koszt jest nieznany; to nie jest USD 0.", "next_step": "Odczytać zapisane użycie providera, gdy będzie dostępne. Nie wyliczać ceny z braku danych."}
+    },
+    {
+      "id": "review_disagreement", "message_type": "question", "status": "needs_changes", "source_status": "fail", "claim_kind": "fact",
+      "en": {"objective": "Resolve a review disagreement with evidence.", "baseline": "The author is confident that the fix is good, but the reviewer seems to disagree and this needs some discussion.", "outcome": "The review disagreement remains unresolved.", "fact": "The author reported HTTP 403. QA reproduced HTTP 200 for an unauthorized fixture request. The evidence does not support approval.", "next_step": "Repeat the same request against the same revision and compare authorization inputs. Keep the finding open."},
+      "pl": {"objective": "Rozstrzygnąć niezgodę review na podstawie dowodów.", "baseline": "Autor uważa, że poprawka jest dobra, ale reviewer chyba ma inne zdanie i trzeba to jakoś omówić.", "outcome": "Niezgoda review pozostaje nierozstrzygnięta.", "fact": "Autor zgłosił HTTP 403. QA odtworzyło HTTP 200 dla nieautoryzowanego żądania testowego. Dowody nie uzasadniają akceptacji.", "next_step": "Powtórzyć to samo żądanie na tej samej rewizji i porównać dane autoryzacji. Uwaga review pozostaje otwarta."}
+    },
+    {
+      "id": "requirements_change", "message_type": "requirements_change", "status": "needs_changes", "source_status": "pass", "claim_kind": "fact",
+      "en": {"objective": "Reconcile the changed acceptance criterion.", "baseline": "The old work looked ready, although something changed in the requirements and the plan may need another look.", "outcome": "The changed criterion requires a new check.", "fact": "The fixture requirement changed from 3 retries to 2 retries on 2026-10-20. The old report does not verify the new requirement.", "next_step": "Update the implementation and test the 2-retry limit. Record the new revision before QA."},
+      "pl": {"objective": "Uwzględnić zmienione kryterium odbioru.", "baseline": "Poprzednia praca wyglądała na gotową, ale coś zmieniło się w wymaganiach i trzeba będzie pewnie wrócić do planu.", "outcome": "Zmienione kryterium wymaga nowej kontroli.", "fact": "Wymaganie testowe zmieniło limit z 3 prób na 2 próby dnia 2026-10-20. Stary raport nie weryfikuje nowego wymagania.", "next_step": "Zmienić implementację i sprawdzić limit 2 prób. Zapisać nową rewizję przed QA."}
+    },
+    {
+      "id": "contradictory_evidence", "message_type": "evidence_conflict", "status": "unknown", "source_status": "unknown", "claim_kind": "hypothesis",
+      "evidence": [
+        {"id": "report-a", "status": "pass", "text": "{\"synthetic\":true,\"passed\":12,\"failed\":0,\"environment\":\"A\"}"},
+        {"id": "report-b", "status": "fail", "text": "{\"synthetic\":true,\"passed\":11,\"failed\":1,\"environment\":\"B\"}"}
+      ],
+      "en": {"objective": "Retain conflicting evidence without selecting a convenient result.", "baseline": "One report looks good and another looks bad, but perhaps the green one is the one we should use.", "outcome": "Conflicting reports prevent a conclusion.", "fact": "Fixture report A records 12 passed tests. Fixture report B records 1 failed test. Different environments may explain the conflict; this hypothesis is unverified.", "next_step": "Compare revisions and environments, then reproduce the conflicting check. Do not discard report B."},
+      "pl": {"objective": "Zachować sprzeczne dowody bez wybierania wygodnego wyniku.", "baseline": "Jeden raport wygląda dobrze, a drugi źle, ale może należałoby po prostu przyjąć ten zielony.", "outcome": "Sprzeczne raporty nie pozwalają ustalić wyniku.", "fact": "Raport testowy A zawiera 12 zaliczonych testów. Raport testowy B zawiera 1 niezaliczony test. Różne środowiska mogą wyjaśniać sprzeczność; ta hipoteza nie została sprawdzona.", "next_step": "Porównać rewizje i środowiska, a potem odtworzyć sporną kontrolę. Nie usuwać raportu B."}
+    }
+  ]
+}

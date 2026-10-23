@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "permissions",
+  "version": "1.0.0",
+  "mode": "preview",
+  "dev": {
+    "allowed": ["Read the authorized repository and issue context", "Edit the task checkout", "Run applicable local checks", "Open a scoped PR and hand it to independent QA"],
+    "requires_authorization": ["Material agent configuration changes", "New paid API calls", "Access expansion", "Destructive operations", "Production changes"],
+    "forbidden": ["Self-approval", "Bypass required checks or human acceptance", "Expose secrets"]
+  },
+  "qa": {
+    "allowed": ["Read the authorized task, diff and reports", "Repeat safe checks in an isolated checkout", "Publish findings and a revision-specific review recommendation"],
+    "requires_authorization": ["Editing the author's branch", "Material agent configuration changes", "New paid API calls", "Access expansion", "Destructive operations", "Production changes"],
+    "forbidden": ["Present an author's replay as independent approval", "Bypass required checks or human acceptance", "Expose secrets"]
+  },
+  "enforcement": "This file describes a proposed task policy. It grants no tool access. Existing platform ACLs and execution controls remain authoritative."
+}
