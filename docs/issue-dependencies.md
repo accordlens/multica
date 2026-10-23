@@ -165,6 +165,17 @@ native run contexts/results remain stored. Deploy the matching server version
 with schema rollback. No production migration is part of this PR.
 
 Run `pnpm local:ci` on a clean committed checkout for the complete fork gates.
+For offline checks without a database, run these from `server/` with
+`GOMAXPROCS=2`:
+
+```sh
+go test -p 1 ./internal/issueworkflow -run Dependency -count=1
+go test -p 1 internal/handler/issue_provenance_source.go internal/handler/issue_provenance_source_test.go -count=1
+```
+
+The second command executes the production source projection directly, without
+the handler suite's database setup. These checks cover graph validation and
+source replay/correction, not transactional claims, ACL or concurrent writes.
 The regression suite covers concurrent cycles and claims, AND readiness,
 reopen, human acceptance/new SHA, explicit context dedup/correction, native
 run delivery without parent completion, and the infrastructure → HTTPS/auth →

@@ -16,6 +16,10 @@ func TestDependencyCycle(t *testing.T) {
 		{"two", []DependencyEdge{{"A", "B"}}, DependencyEdge{"B", "A"}, []string{"B", "A", "B"}},
 		{"chain", []DependencyEdge{{"C", "B"}, {"B", "A"}}, DependencyEdge{"A", "C"}, []string{"A", "C", "B", "A"}},
 		{"diamond", []DependencyEdge{{"C", "A"}}, DependencyEdge{"C", "B"}, nil},
+		{"replay existing edge", []DependencyEdge{{"C", "A"}, {"C", "B"}}, DependencyEdge{"C", "A"}, nil},
+		{"diamond closing cycle", []DependencyEdge{{"C", "A"}, {"C", "B"}, {"B", "A"}}, DependencyEdge{"A", "C"}, []string{"A", "C", "A"}},
+		{"infra then HTTPS then auth", []DependencyEdge{{"HTTPS-54", "infra-53"}, {"auth-55", "HTTPS-54"}, {"acceptance", "auth-55"}}, DependencyEdge{"acceptance", "infra-53"}, nil},
+		{"infra must not wait for acceptance", []DependencyEdge{{"HTTPS-54", "infra-53"}, {"auth-55", "HTTPS-54"}, {"acceptance", "auth-55"}}, DependencyEdge{"infra-53", "acceptance"}, []string{"infra-53", "acceptance", "auth-55", "HTTPS-54", "infra-53"}},
 		{"legacy cycle terminates", []DependencyEdge{{"A", "B"}, {"B", "A"}}, DependencyEdge{"C", "A"}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

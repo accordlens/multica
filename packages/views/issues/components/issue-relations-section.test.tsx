@@ -5,12 +5,13 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { renderWithI18n } from "../../test/i18n";
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), provenance: vi.fn(), create: vi.fn(), remove: vi.fn(), accept: vi.fn() }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), provenance: vi.fn(), create: vi.fn(), remove: vi.fn(), accept: vi.fn(), removeSource: vi.fn() }));
 vi.mock("@multica/core/api", () => ({ api: {
   listIssueRelations: (id: string) => mocks.list(id), listIssueProvenance: () => mocks.provenance(),
   createIssueRelation: (...args: unknown[]) => mocks.create(...args),
   removeIssueRelation: (...args: unknown[]) => mocks.remove(...args),
   acceptIssueRelation: (...args: unknown[]) => mocks.accept(...args),
+  removeIssueProvenance: (...args: unknown[]) => mocks.removeSource(...args),
 } }));
 vi.mock("@multica/core/hooks", () => ({ useWorkspaceId: () => "workspace" }));
 vi.mock("@multica/core/paths", () => ({ useWorkspacePaths: () => ({ issueDetail: (id: string) => `/acme/issues/${id}` }) }));
@@ -54,4 +55,33 @@ it("does not claim readiness or render unsafe source URLs from degraded data", a
   expect(await screen.findByText("Could not load relations.")).toBeVisible();
   expect(screen.queryByText("Inputs satisfied")).toBeNull();
   expect(screen.queryByRole("link")).toBeNull();
+});
+
+it("refreshes evidence after a stale acceptance and keeps the dependency waiting", async () => {
+  mocks.list.mockResolvedValueOnce({ available: true, ready: false, step: "review", relations: [relation] });
+  mocks.list.mockResolvedValue({ available: true, ready: false, step: "review", relations: [{ ...relation, issue: { ...relation.issue, revision: 8 }, source_revision: 8, source_evidence_version: "b".repeat(64) }] });
+  mocks.accept.mockRejectedValue(new Error("source evidence changed; reload before accepting"));
+  render();
+  fireEvent.click(await screen.findByRole("button", { name: "Accept revision 7" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("source evidence changed");
+  expect(await screen.findByRole("button", { name: "Accept revision 8" })).toBeVisible();
+  expect(screen.queryByText("Inputs satisfied")).toBeNull();
+  expect(mocks.accept).toHaveBeenCalledTimes(1);
+  expect(mocks.accept).toHaveBeenCalledWith("target", "edge", 7, "a".repeat(64));
+});
+
+it("retains a source while correction is pending and refreshes it after acknowledgement", async () => {
+  mocks.list.mockResolvedValue({ available: true, ready: true, step: "todo", relations: [] });
+  const sha = "a".repeat(40);
+  mocks.provenance.mockResolvedValueOnce({ available: true, links: [{ id: "source-link", run_id: "source-run", kind: "commit", commit_sha: sha, step: "test" }], artifacts: [], runs: [] });
+  let acknowledge!: () => void;
+  mocks.removeSource.mockReturnValue(new Promise<void>((resolve) => { acknowledge = resolve; }));
+  render();
+  expect(await screen.findByText(sha)).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Remove source link" }));
+  await waitFor(() => expect(mocks.removeSource).toHaveBeenCalledWith("target", "source-run", "source-link"));
+  expect(screen.getByText(sha)).toBeVisible();
+  expect(screen.getByRole("button", { name: "Remove source link" })).toBeDisabled();
+  acknowledge();
+  await waitFor(() => expect(screen.queryByText(sha)).toBeNull());
 });
