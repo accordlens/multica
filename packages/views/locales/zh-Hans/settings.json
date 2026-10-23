@@ -1386,7 +1386,10 @@
     "invitation_meta": "{{sent}} 发送 · {{expires}} 过期",
     "revoke_invitation_aria": "撤销发给 {{email}} 的邀请",
     "seats_used": "已用 {{used}} / {{purchased}} 个席位",
-    "manage_seats": "管理席位"
+    "manage_seats": "管理席位",
+    "copy_passkey_link_aria": "复制 {{email}} 的注册链接",
+    "toast_passkey_link_copied": "已复制注册链接。24 小时内可使用一次。",
+    "toast_passkey_link_failed": "无法创建注册链接"
   },
   "integrations": {
     "status_connected": "已连接",
@@ -1432,5 +1435,22 @@
     "mcp": "由管理员添加、在工作区内共享，再按智能体分配。",
     "apps": "用你自己的账号通过 Composio 授权，在你拥有的智能体上启用。",
     "plugins": "安装后可提供工具、定时 hook 和存储，每个插件单独授权。"
+  },
+  "passkeys": {
+    "title": "通行密钥",
+    "description": "在另一台设备上保留一个备用通行密钥，丢失其中一台时仍可登录。",
+    "add": "添加通行密钥",
+    "adding": "正在等待通行密钥…",
+    "created": "添加于 {{date}}",
+    "last_used": "上次使用 {{date}}",
+    "never_used": "尚未使用",
+    "remove_aria": "删除通行密钥 {{name}}",
+    "only_one_hint": "删除前请先添加一个备用通行密钥。",
+    "reauth_required": "为安全起见，请退出后用通行密钥重新登录，并在 10 分钟内重试。",
+    "remove_title": "删除通行密钥？",
+    "remove_description": "{{name}} 将无法再用于登录。已登录的设备会保持登录，直到退出或会话过期。",
+    "toast_added": "已添加通行密钥",
+    "toast_removed": "已删除通行密钥",
+    "toast_failed": "无法更新通行密钥"
   }
 }

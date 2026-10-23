@@ -5,6 +5,7 @@ import { Input } from "@multica/ui/components/ui/input";
 import { Textarea } from "@multica/ui/components/ui/textarea";
 import { toast } from "sonner";
 import { useAuthStore } from "@multica/core/auth";
+import { useConfigStore } from "@multica/core/config";
 import { api } from "@multica/core/api";
 import { AvatarUploadControl } from "../../common/avatar-upload-control";
 import { useT } from "../../i18n";
@@ -16,6 +17,7 @@ import {
   SettingsTab,
 } from "./settings-layout";
 import { useAutoSave } from "./use-auto-save";
+import { PasskeysSection } from "./passkeys-section";
 
 // Mirror server/internal/handler/auth.go:MaxProfileDescriptionLen. Counted in
 // JS String.length (UTF-16 code units) here while the server counts runes,
@@ -36,6 +38,7 @@ export function AccountTab() {
   const { t } = useT("settings");
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
+  const passkeyOnly = useConfigStore((s) => s.passkeyOnly);
 
   const [profileName, setProfileName] = useState(user?.name ?? "");
   const [profileDescription, setProfileDescription] = useState(
@@ -186,6 +189,7 @@ export function AccountTab() {
           </SettingsRow>
         </SettingsCard>
       </SettingsSection>
+      {passkeyOnly && <PasskeysSection />}
     </SettingsTab>
   );
 }
