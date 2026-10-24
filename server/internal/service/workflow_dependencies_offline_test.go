@@ -88,8 +88,11 @@ func TestScriptWorkflowOfflineJointDependenciesAndRevisionEvidence(t *testing.T)
 			raw, _ := json.Marshal(workflowCompletion{Output: "PASS", Evidence: &bad})
 			completed, transitioned, err := transport.CompleteTaskWithTransition(context.Background(), retest.ID, raw, "", p.workdir, "joint", false, "", "")
 			if mode == "reopened prerequisite" {
-				if err != nil || !transitioned || completed == nil || completed.Status != "completed" || copy.tasks[retest.ID].Status != "completed" {
-					t.Fatalf("unmet dependency must save the completion: transitioned=%v task=%+v err=%v", transitioned, completed, err)
+				if err != nil || !transitioned || completed == nil {
+					t.Fatalf("unmet dependency must save the completion: transitioned=%v completed=%v err=%v", transitioned, completed != nil, err)
+				}
+				if completed.Status != "completed" || copy.tasks[retest.ID].Status != "completed" {
+					t.Fatal("unmet dependency left the script run unfinished")
 				}
 				if copy.issue.Status != "verify" || !bytes.Equal(completed.Result, raw) || !bytes.Equal(copy.tasks[retest.ID].Result, raw) {
 					t.Fatal("unmet dependency moved the issue or lost the PASS evidence")

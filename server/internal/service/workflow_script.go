@@ -236,6 +236,12 @@ func (s *TaskService) queueWorkflowSuccessor(ctx context.Context, q *db.Queries,
 		return err
 	}
 	_, err = q.MoveWorkflowIssue(ctx, db.MoveWorkflowIssueParams{ID: issue.ID, WorkspaceID: issue.WorkspaceID, Status: status, AgentID: agentUUID, SourceTaskID: source.ID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		// advanceScriptWorkflow already locked this issue. An unmet dependency
+		// declined the handoff: save the source completion and its evidence,
+		// leaving the issue in its current step without a successor.
+		return nil
+	}
 	if err != nil {
 		return err
 	}
