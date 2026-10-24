@@ -14,6 +14,27 @@ and exposed by the source API. A completed run is a delivery fact; successful
 tests and review still require ACCO-94's validated evidence for the current
 source SHA, definition and required checks.
 
+The joint offline regression is
+`TestScriptWorkflowOfflineJointDependenciesAndRevisionEvidence` in
+`server/internal/service/workflow_dependencies_offline_test.go`. It calls native
+start/completion methods with UUIDs, real Git revisions and actual Node reports:
+both prerequisite projections must permit admission, then script FAIL routes
+one repair, a new revision passes, and replay routes one independent reviewer.
+Reopened inputs and stale run/SHA/report evidence cannot authorize review.
+`MoveWorkflowIssue` uses the same dependency transition function as ordinary
+issue writes. This keeps script delivery subject to dependency gates.
+
+Run the small joint check from `server/` with `GOMAXPROCS=2`:
+
+```sh
+go test -p 1 ./internal/service -run '^TestScriptWorkflowOfflineJointDependenciesAndRevisionEvidence$' -count=1
+```
+
+Its sqlc transport supplies fixture readiness projections; PostgreSQL's AND
+evaluation, concurrent graph writes, rollback, ACL and E2E remain separate DB
+acceptance gates. Fixture author/reviewer identities do not constitute an
+independent QA verdict or human acceptance.
+
 The existing surfaces remain authoritative:
 
 - `issue.parent_issue_id` and `stage` describe hierarchy and parent barrier
