@@ -2200,6 +2200,7 @@ UPDATE issue AS i SET
     updated_at = CASE WHEN changed.did_change THEN now() ELSE i.updated_at END
 FROM changed CROSS JOIN wakeup_source
 WHERE i.id = changed.id
+  AND issue_dependency_transition_allowed(i.id, i.status, changed.next_status)
   -- Re-check the precondition on the row version that UPDATE actually locks.
   -- Under READ COMMITTED, concurrent statements may both populate candidate
   -- from the same snapshot; EvalPlanQual re-evaluates this target-row predicate

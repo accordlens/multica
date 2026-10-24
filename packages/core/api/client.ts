@@ -1,3 +1,5 @@
+import type { CreateIssueRelation, IssueRelationsResponse, IssueProvenanceResponse } from "../types/issue-relation";
+import { IssueProvenanceResponseSchema, EMPTY_ISSUE_PROVENANCE_RESPONSE, IssueRelationsResponseSchema, EMPTY_ISSUE_RELATIONS_RESPONSE, IssueRelationWriteSchema, IssueRelationReceiptSchema } from "./schemas";
 import type { ZodType } from "zod";
 import type { IssueWakeup, IssueWakeupInput, IssueWakeupSummaryRow, PausedWakeup, SystemWakeup, WakeupRun, WorkspaceSystemWakeup } from "../types/issue-wakeup";
 import type { WorkspaceWakeupPage, WorkspaceWakeupFilters } from "../types/issue-wakeup";
@@ -5051,6 +5053,41 @@ export class ApiClient {
     await this.fetch(`/api/workspaces/${workspaceId}/github/installations/${installationId}`, {
       method: "DELETE",
     });
+  }
+
+  async listIssueProvenance(issueId: string): Promise<IssueProvenanceResponse> {
+    const raw = await this.fetch<unknown>(`/api/issues/${issueId}/links`);
+    return parseWithFallback(raw, IssueProvenanceResponseSchema, EMPTY_ISSUE_PROVENANCE_RESPONSE, { endpoint: "GET /api/issues/:id/links" });
+  }
+
+  async removeIssueProvenance(issueId: string, runId: string, linkId: string): Promise<void> {
+    const raw = await this.fetch<unknown>(`/api/issues/${issueId}/links/${linkId}/remove`, { method: "POST", body: JSON.stringify({ run_id: runId }) });
+    const receipt = parseWithFallback<{ removed?: boolean }>(raw, IssueRelationReceiptSchema, {}, { endpoint: "POST /api/issues/:id/links/:linkId/remove" });
+    if (receipt.removed !== true) throw new Error("Invalid provenance removal response");
+  }
+
+  async listIssueRelations(issueId: string): Promise<IssueRelationsResponse> {
+    const raw = await this.fetch<unknown>(`/api/issues/${issueId}/relations`);
+    return parseWithFallback(raw, IssueRelationsResponseSchema, EMPTY_ISSUE_RELATIONS_RESPONSE, { endpoint: "GET /api/issues/:id/relations" });
+  }
+
+  async createIssueRelation(issueId: string, body: CreateIssueRelation): Promise<{ id: string; created: boolean }> {
+    const raw = await this.fetch<unknown>(`/api/issues/${issueId}/relations`, { method: "POST", body: JSON.stringify(body) });
+    const result = parseWithFallback(raw, IssueRelationWriteSchema, { id: "", created: false }, { endpoint: "POST /api/issues/:id/relations" });
+    if (!result.id) throw new Error("Invalid relation response");
+    return result;
+  }
+
+  async removeIssueRelation(issueId: string, relationId: string): Promise<void> {
+    const raw = await this.fetch<unknown>(`/api/issues/${issueId}/relations/${relationId}`, { method: "DELETE" });
+    const receipt = parseWithFallback<{ removed?: boolean }>(raw, IssueRelationReceiptSchema, {}, { endpoint: "DELETE /api/issues/:id/relations/:relationId" });
+    if (receipt.removed !== true) throw new Error("Invalid relation removal response");
+  }
+
+  async acceptIssueRelation(issueId: string, relationId: string, revision: number, evidenceVersion: string): Promise<void> {
+    const raw = await this.fetch<unknown>(`/api/issues/${issueId}/relations/${relationId}/accept`, { method: "POST", body: JSON.stringify({ revision, evidence_version: evidenceVersion }) });
+    const receipt = parseWithFallback<{ accepted?: boolean }>(raw, IssueRelationReceiptSchema, {}, { endpoint: "POST /api/issues/:id/relations/:relationId/accept" });
+    if (receipt.accepted !== true) throw new Error("Invalid relation acceptance response");
   }
 
   async listIssuePullRequests(issueId: string): Promise<IssuePullRequestsResponse> {

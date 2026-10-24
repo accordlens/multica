@@ -1,4 +1,5 @@
 "use client";
+import { IssueRelationsSection } from "./issue-relations-section";
 
 import {
   issueBehavesAs,
@@ -2908,6 +2909,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
       )}
 
       <IssueDuplicatesSection issueId={issue.id} />
+      <IssueRelationsSection key={issue.id} issueId={issue.id} />
 
       {/* Pull requests — hidden when the workspace disables the PR sidebar
           (or the GitHub master switch is off). Backend data is kept either

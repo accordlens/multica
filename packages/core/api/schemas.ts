@@ -3839,3 +3839,42 @@ export const ChatCapabilitiesSchema = z.object({
  private_download_identity_required:z.literal(true),
  limits:z.object({message_codepoints:z.number().int().positive(),history_default:z.number().int().positive(),history_max:z.number().int().positive(),group_members:z.number().int().positive(),attachments:z.number().int().positive(),upload_bytes:z.number().int().positive()}),
 }).loose();
+
+export const IssueRelationSchema = z.object({
+  id: z.string().min(1),
+  type: z.string(),
+  issue: z.object({ id: z.string().min(1), identifier: z.string(), title: z.string(), status: z.string(), status_category: z.string().nullable().default(null), revision: z.number().int() }),
+  condition: z.object({ kind: z.string(), run_id: z.string().optional(), source_step: z.string().optional() }),
+  source_revision: z.number().int().default(0),
+  source_evidence_version: z.string().default(""),
+  target_step: z.string().default(""),
+  satisfied: z.boolean().default(false),
+  reason: z.string().default("unsupported_condition"),
+  provenance: z.record(z.string(), z.unknown()).default({}),
+  created_at: z.string(),
+  removed_at: z.string().nullable().default(null),
+});
+export const IssueRelationsResponseSchema = z.object({
+  relations: z.array(IssueRelationSchema), ready: z.boolean(), reason: z.string().default(""), step: z.string(), available: z.boolean().default(true),
+});
+export const EMPTY_ISSUE_RELATIONS_RESPONSE = { relations: [], ready: false, reason: "", step: "", available: false };
+export const IssueRelationWriteSchema = z.object({ id: z.string().min(1), created: z.boolean() });
+export const IssueRelationReceiptSchema = z.object({ removed: z.boolean().optional(), accepted: z.boolean().optional() });
+
+export const IssueProvenanceLinkSchema = z.object({
+  id: z.string().min(1), kind: z.string(), run_id: z.string().min(1), step: z.string().default(""),
+  url: z.string().optional(), commit_sha: z.string().optional(), dirty_hash: z.string().optional(), artifact_id: z.string().optional(), sha256: z.string().optional(),
+  source: z.string(), actor_type: z.string().optional(), actor_id: z.string().optional(),
+  created_at: z.string(), removed_at: z.string().optional(), removed_by: z.string().optional(),
+});
+export const IssueProvenanceResponseSchema = z.object({
+  links: z.array(IssueProvenanceLinkSchema),
+  runs: z.array(z.object({
+    run_id: z.string(), step: z.string(), status: z.string(), created_at: z.string(),
+    workflow_id: z.string().default(""), definition_sha256: z.string().default(""),
+    workflow_evidence: z.unknown().nullable().default(null),
+  })),
+  artifacts: z.array(z.object({ id: z.string(), filename: z.string(), run_id: z.string(), created_at: z.string() })),
+  has_more: z.boolean(), offset: z.number().int(), available: z.boolean().default(true),
+});
+export const EMPTY_ISSUE_PROVENANCE_RESPONSE = { links: [], runs: [], artifacts: [], has_more: false, offset: 0, available: false };

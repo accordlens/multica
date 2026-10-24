@@ -730,6 +730,7 @@ WITH candidate AS MATERIALIZED (
     JOIN agent_runtime r ON r.id = t.runtime_id
     WHERE t.id = $1
       AND t.status IN ('dispatched', 'waiting_local_directory')
+      AND (t.issue_id IS NULL OR issue_dependencies_ready(t.issue_id, COALESCE(t.workflow_step, '')))
     FOR UPDATE OF t
 ), capability AS (
     INSERT INTO task_supplement_capability (task_id, workspace_id, issue_id, capability)
