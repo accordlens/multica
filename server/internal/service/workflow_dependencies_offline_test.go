@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"maps"
@@ -85,15 +86,23 @@ func TestScriptWorkflowOfflineJointDependenciesAndRevisionEvidence(t *testing.T)
 				bad.Report, bad.ReportHash = failure.Report, failure.ReportHash
 			}
 			raw, _ := json.Marshal(workflowCompletion{Output: "PASS", Evidence: &bad})
-			_, transitioned, err := transport.CompleteTaskWithTransition(context.Background(), retest.ID, raw, "", p.workdir, "joint", false, "", "")
+			completed, transitioned, err := transport.CompleteTaskWithTransition(context.Background(), retest.ID, raw, "", p.workdir, "joint", false, "", "")
 			if mode == "reopened prerequisite" {
-				if transitioned || copy.issue.Status != "verify" {
-					t.Fatal("native review transition ignored an unmet dependency")
+				if err != nil || !transitioned || completed == nil || completed.Status != "completed" || copy.tasks[retest.ID].Status != "completed" {
+					t.Fatalf("unmet dependency must save the completion: transitioned=%v task=%+v err=%v", transitioned, completed, err)
 				}
-				// This transport has no rollback, so its completed row can turn
-				// ErrNoRows into an idempotent response. Assert no delivery or
-				// successor here; atomic task-row rollback remains a DB gate.
-				t.Logf("unmet dependency: transitioned=%v error=%v; transaction rollback NOT_RUN", transitioned, err)
+				if copy.issue.Status != "verify" || !bytes.Equal(completed.Result, raw) || !bytes.Equal(copy.tasks[retest.ID].Result, raw) {
+					t.Fatal("unmet dependency moved the issue or lost the PASS evidence")
+				}
+				// Readiness returning cannot replay an already recorded completion
+				// into another handoff. PostgreSQL rollback remains a DB gate.
+				copy.dependencyProjection[b] = true
+				for range 2 {
+					_, replayed, replayErr := transport.CompleteTaskWithTransition(context.Background(), retest.ID, raw, "", p.workdir, "joint", false, "", "")
+					if replayErr != nil || replayed || copy.issue.Status != "verify" || !bytes.Equal(copy.tasks[retest.ID].Result, raw) {
+						t.Fatalf("replay changed the recorded completion: transitioned=%v err=%v", replayed, replayErr)
+					}
+				}
 			} else if err != nil || copy.issue.Status != "blocked" {
 				t.Fatalf("invalid %s evidence was not blocked: status=%s err=%v", mode, copy.issue.Status, err)
 			}
