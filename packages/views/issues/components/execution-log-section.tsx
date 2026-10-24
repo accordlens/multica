@@ -256,6 +256,7 @@ function RunTotals({ timeline }: { timeline: RunTimeline }) {
     [t(($) => $.runs_timeline.stat_spent), priced ? formatUsd(timeline.totalCost) : "—"],
     [t(($) => $.runs_timeline.stat_tokens), priced ? formatTokens(timeline.tokens.total) : "—"],
     [t(($) => $.runs_timeline.stat_agent_time), formatAgentTime(timeline.agentMs / 1000, "0s")],
+    ...(timeline.scriptMs > 0 ? [[t(($) => $.workflow_run.script_time), formatAgentTime(timeline.scriptMs / 1000, "0s")]] : []),
   ] as const;
   return (
     <dl className="grid grid-cols-3 gap-2 px-1 pb-2">

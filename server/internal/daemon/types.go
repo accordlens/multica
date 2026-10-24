@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 
+	"github.com/multica-ai/multica/server/internal/issueworkflow"
 	"github.com/multica-ai/multica/server/internal/runtimeapps"
 	"github.com/multica-ai/multica/server/pkg/remotemcp"
 )
@@ -69,12 +70,14 @@ type IssueStatusData struct {
 // Brief is rendered by the server for this run — the assignee's or an
 // observer's — and goes into the per-turn prompt as is.
 type ProjectWorkflowData struct {
-	Brief string `json:"brief"`
+	Gate  *issueworkflow.Execution `json:"gate,omitempty"`
+	Brief string                   `json:"brief"`
 }
 
 // Task represents a claimed task from the server.
 // Agent data (name, skills) is populated by the claim endpoint.
 type Task struct {
+	WorkflowExecution *issueworkflow.Execution `json:"workflow_execution,omitempty"`
 	// StartClaimSupported gates retries when talking to older servers.
 	StartClaimSupported  bool                   `json:"start_claim_supported,omitempty"`
 	DispatchedAt         string                 `json:"dispatched_at,omitempty"`
@@ -298,12 +301,13 @@ type TaskUsageEntry struct {
 
 // TaskResult is the outcome of executing a task.
 type TaskResult struct {
-	Status     string `json:"status"`
-	Comment    string `json:"comment"`
-	BranchName string `json:"branch_name,omitempty"`
-	EnvType    string `json:"env_type,omitempty"`
-	SessionID  string `json:"session_id,omitempty"` // Claude session ID for future resumption
-	WorkDir    string `json:"work_dir,omitempty"`   // working directory used during execution
+	WorkflowEvidence *issueworkflow.Evidence `json:"workflow_evidence,omitempty"`
+	Status           string                  `json:"status"`
+	Comment          string                  `json:"comment"`
+	BranchName       string                  `json:"branch_name,omitempty"`
+	EnvType          string                  `json:"env_type,omitempty"`
+	SessionID        string                  `json:"session_id,omitempty"` // Claude session ID for future resumption
+	WorkDir          string                  `json:"work_dir,omitempty"`   // working directory used during execution
 	// DurableWorkDir replaces WorkDir only after a disposable local worktree
 	// was finalized and its removal was confirmed. Empty keeps WorkDir authoritative.
 	DurableWorkDir string `json:"durable_work_dir,omitempty"`

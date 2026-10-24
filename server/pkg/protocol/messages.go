@@ -3,6 +3,8 @@ package protocol
 import "encoding/json"
 
 const (
+	// A script task must never fall through to model launch on an older daemon.
+	DaemonCapabilityWorkflowScriptsV1   = "workflow-scripts-v1"
 	DaemonCapabilitySkillBundlesV1      = "skill-bundles-v1"
 	DaemonCapabilityCoalescedCommentsV1 = "coalesced-comments-v1"
 	DaemonCapabilityExecutionManifestV1 = "execution-manifest-v1"

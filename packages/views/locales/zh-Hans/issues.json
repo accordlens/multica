@@ -1729,5 +1729,17 @@
     "remove_source": "移除来源链接",
     "issue_closed": "任务已关闭，不再启动运行",
     "local_changes": "未提交的更改"
+  },
+  "workflow_run": {
+    "evidence": "工作流证据",
+    "step": "步骤",
+    "source": "源代码 SHA",
+    "definition": "工作流版本",
+    "script": "脚本",
+    "repairs": "修复次数",
+    "report": "报告",
+    "log": "日志",
+    "resources": "脚本运行时间与模型用量分别记录。",
+    "script_time": "脚本运行时间"
   }
 }

@@ -1729,5 +1729,17 @@
     "remove_source": "원본 링크 제거",
     "issue_closed": "태스크 종료: 새 실행 없음",
     "local_changes": "커밋하지 않은 변경 사항"
+  },
+  "workflow_run": {
+    "evidence": "워크플로 증거",
+    "step": "단계",
+    "source": "소스 SHA",
+    "definition": "워크플로 버전",
+    "script": "스크립트",
+    "repairs": "수정 시도",
+    "report": "보고서",
+    "log": "로그",
+    "resources": "스크립트 실행 시간은 모델 사용량과 별도로 기록됩니다.",
+    "script_time": "스크립트 시간"
   }
 }

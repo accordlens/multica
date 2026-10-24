@@ -6,6 +6,7 @@
 
 import "./env";
 import pg from "pg";
+import { createHash, randomUUID } from "node:crypto";
 
 // `||` (not `??`) so an empty `NEXT_PUBLIC_API_URL=` in .env still falls
 // back to localhost. dotenv sets unset-vs-empty both as "" — treating them
@@ -53,6 +54,7 @@ export class TestApiClient {
   private createdIssueIds: string[] = [];
   private createdProjectIds: string[] = [];
   private seededIssueIds: string[] = [];
+  private workflowRunFixtures: { taskId: string; agentId: string }[] = [];
 
   async login(email: string, name: string) {
     const client = new pg.Client(DATABASE_URL);
@@ -402,8 +404,52 @@ export class TestApiClient {
     return res.json();
   }
 
+  /** A terminal script receipt for browser projection tests; no runtime/model is created. */
+  async seedWorkflowScriptRun(issueId: string) {
+    if (!this.workspaceId || !this.email) throw new Error("Log in before seeding workflow evidence");
+    const client = new pg.Client(DATABASE_URL);
+    await client.connect();
+    try {
+      await client.query("BEGIN");
+      const owner = await client.query<{ id: string }>('SELECT id FROM "user" WHERE email=$1', [this.email]);
+      const ownerId = owner.rows[0]!.id;
+      const agent = await client.query<{ id: string }>(
+        `INSERT INTO agent (workspace_id,name,description,instructions,runtime_mode,runtime_config,visibility,permission_mode,owner_id,custom_env,custom_args)
+         VALUES ($1,'Workflow verification','','','cloud','{}','private','private',$2,'{}','[]') RETURNING id`,
+        [this.workspaceId, ownerId],
+      );
+      const taskId = randomUUID();
+      const source = { sha: "a".repeat(40) };
+      const script = { id: "required-unit-checks", version: "1", checkout: "repo", directory: ".", command: ["node", "gate.mjs"], required_env: [], timeout_seconds: 60, budget_seconds: 600, max_repairs: 1, required_checks: ["unit"], files: { "gate.mjs": "b".repeat(64) } };
+      const report = JSON.stringify({ run_id: taskId, source_sha: source.sha, workflow_version: "c".repeat(64), script_version: "1", checks: [{ name: "unit", passed: 4, failed: 1, skipped: 0 }] });
+      const evidence = { run_id: taskId, source, workflow_version: "c".repeat(64), script_version: "1", outcome: "assertion_failed", exit_code: 1, started_at: new Date(Date.now() - 5000).toISOString(), finished_at: new Date().toISOString(), report_id: taskId, report_hash: createHash("sha256").update(report).digest("hex"), report, log: "TestAnswer: expected 42, received 0" };
+      const execution = { kind: "script", root_task_id: taskId, source_task_id: taskId, workflow_id: randomUUID(), workflow_version: evidence.workflow_version, step_key: "verify", source, script, repairs: 1, deadline: new Date(Date.now() + 600000).toISOString(), block_reason: "repair attempt limit exhausted" };
+      await client.query(
+        `INSERT INTO agent_task_queue (id,agent_id,issue_id,status,workflow_step,started_at,completed_at,context,result,originator_user_id,accountable_user_id)
+         SELECT $1,$2,i.id,'completed','verify',now()-interval '5 seconds',now(),$4::jsonb,$5::jsonb,$6,$6
+         FROM issue i WHERE i.id=$3 AND i.workspace_id=$7`,
+        [taskId, agent.rows[0]!.id, issueId, JSON.stringify({ hybrid_workflow: execution }), JSON.stringify({ output: "Required unit check failed", workflow_evidence: evidence }), ownerId, this.workspaceId],
+      );
+      await client.query("COMMIT");
+      this.workflowRunFixtures.push({ taskId, agentId: agent.rows[0]!.id });
+      return { taskId, sourceSHA: source.sha, reportHash: evidence.report_hash };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally { await client.end(); }
+  }
+
   /** Clean up all issues created during this test. */
   async cleanup() {
+    if (this.workflowRunFixtures.length) {
+      const client = new pg.Client(DATABASE_URL);
+      await client.connect();
+      try {
+        await client.query("DELETE FROM agent_task_queue WHERE id=ANY($1::uuid[])", [this.workflowRunFixtures.map((row) => row.taskId)]);
+        await client.query("DELETE FROM agent WHERE id=ANY($1::uuid[]) AND workspace_id=$2", [this.workflowRunFixtures.map((row) => row.agentId), this.workspaceId]);
+        this.workflowRunFixtures = [];
+      } finally { await client.end(); }
+    }
     if (this.seededIssueIds.length > 0 && this.workspaceId) {
       const client = new pg.Client(DATABASE_URL);
       await client.connect();

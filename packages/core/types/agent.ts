@@ -299,6 +299,9 @@ export interface TaskCancellationActor {
 }
 
 export interface AgentTask {
+  workflow_step?: string;
+  workflow_execution?: import("./issue-workflow").WorkflowExecution;
+  workflow_evidence?: import("./issue-workflow").WorkflowEvidence;
   wakeup_id?: string;
   id: string;
   agent_id: string;

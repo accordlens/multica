@@ -26,6 +26,8 @@ export interface IssueWorkflowHandler {
 
 /** A column with its handoff; handler "none" keeps the assignee. */
 export interface IssueWorkflowStep {
+	/** Administrator-reviewed local gate. Commands are argv from this definition. */
+  script?: WorkflowScript;
   status_key: string;
   handler: IssueWorkflowHandler;
   instructions: string;
@@ -140,8 +142,56 @@ export interface WorkflowHandoffPreview {
 
 /** A workflow's handoff for one column; handler "none" clears it. */
 export interface SetWorkflowHandoffRequest {
+  script?: WorkflowScript;
   handler: IssueWorkflowHandler;
   instructions?: string;
   next_status_key?: string;
   back_status_key?: string;
+}
+
+export interface WorkflowScript {
+  id: string;
+  version: string;
+  checkout: string;
+  directory: string;
+  command: string[];
+  required_env: string[];
+  timeout_seconds: number;
+  budget_seconds: number;
+  max_repairs: number;
+  required_checks: string[];
+  files: Record<string, string>;
+}
+
+export interface WorkflowEvidence {
+  run_id: string;
+  source: { sha: string; dirty_hash?: string };
+  workflow_version: string;
+  script_version?: string;
+  script_hash?: string;
+  outcome: string;
+  exit_code: number;
+  started_at: string;
+  finished_at: string;
+  report_id?: string;
+  report_hash?: string;
+  report?: string;
+  log?: string;
+  log_hash?: string;
+  reason?: string;
+}
+
+export interface WorkflowExecution {
+  kind: string;
+  root_task_id: string;
+  workflow_id: string;
+  workflow_version: string;
+  step_key: string;
+  source: { sha: string; dirty_hash?: string };
+  script: WorkflowScript;
+  repairs: number;
+  deadline: string;
+  evidence?: WorkflowEvidence;
+  block_reason?: string;
+  review_verdict?: string;
 }

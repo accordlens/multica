@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/multica-ai/multica/server/internal/featureflags"
 	"github.com/multica-ai/multica/server/internal/issuestatus"
 	"github.com/multica-ai/multica/server/internal/issueworkflow"
@@ -48,6 +49,20 @@ func isWorkspaceAdmin(member db.Member) bool {
 	return roleAllowed(member.Role, "owner", "admin")
 }
 
+func (h *Handler) requireHumanGateEdit(w http.ResponseWriter, r *http.Request, member db.Member, workspaceID string, definitions ...issueworkflow.Definition) bool {
+	for _, def := range definitions {
+		if def.HasScripts() {
+			actor, _ := h.resolveActor(r, uuidToString(member.UserID), workspaceID)
+			if actor == "member" && isWorkspaceAdmin(member) {
+				return true
+			}
+			writeErrorCode(w, http.StatusForbidden, "workflow_gate_requires_human", "script gate definitions and their project binding require a human administrator")
+			return false
+		}
+	}
+	return true
+}
+
 // canManageProjectWorkflow reports whether member may change a project's own
 // workflow settings: owners and admins, and the member who leads the project.
 func canManageProjectWorkflow(member db.Member, project db.Project) bool {
@@ -65,6 +80,7 @@ type IssueWorkflowHandlerPayload struct {
 // IssueWorkflowStepPayload is one status of a workflow, in board order, with
 // what happens when an issue enters it.
 type IssueWorkflowStepPayload struct {
+	Script        *issueworkflow.Script       `json:"script,omitempty"`
 	StatusKey     string                      `json:"status_key"`
 	Handler       IssueWorkflowHandlerPayload `json:"handler"`
 	Instructions  string                      `json:"instructions"`
@@ -108,6 +124,7 @@ type workflowMappingPlan struct {
 
 func stepToPayload(s issueworkflow.Step) IssueWorkflowStepPayload {
 	return IssueWorkflowStepPayload{
+		Script:        s.Script,
 		StatusKey:     s.StatusKey,
 		Handler:       IssueWorkflowHandlerPayload{Type: s.Handler.Type, ID: s.Handler.ID},
 		Instructions:  s.Instructions,
@@ -118,6 +135,7 @@ func stepToPayload(s issueworkflow.Step) IssueWorkflowStepPayload {
 
 func payloadToStep(statusKey string, in IssueWorkflowStepPayload) issueworkflow.Step {
 	return issueworkflow.Step{
+		Script:        in.Script,
 		StatusKey:     statusKey,
 		Handler:       issueworkflow.Handler{Type: in.Handler.Type, ID: in.Handler.ID},
 		Instructions:  in.Instructions,
@@ -297,6 +315,7 @@ type NewWorkflowStatus struct {
 // status to create, with its handoff. Next and back statuses must name
 // existing statuses.
 type IssueWorkflowStepInput struct {
+	Script        *issueworkflow.Script        `json:"script,omitempty"`
 	StatusKey     string                       `json:"status_key,omitempty"`
 	NewStatus     *NewWorkflowStatus           `json:"new_status,omitempty"`
 	Handler       *IssueWorkflowHandlerPayload `json:"handler,omitempty"`
@@ -335,6 +354,7 @@ func resolveStepInputs(ctx context.Context, qtx *db.Queries, wsUUID pgtype.UUID,
 	var created []db.IssueStatus
 	for _, in := range inputs {
 		step := issueworkflow.Step{
+			Script:        in.Script,
 			StatusKey:     in.StatusKey,
 			Instructions:  in.Instructions,
 			NextStatusKey: in.NextStatusKey,
@@ -501,6 +521,9 @@ func (h *Handler) CreateIssueWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name, description, steps = issueworkflow.Normalize(name, description, steps)
+	if !h.requireHumanGateEdit(w, r, member, workspaceID, issueworkflow.Definition{Steps: steps}) {
+		return
+	}
 	catalog, err := h.workflowStatusCatalog(ctx, qtx, wsUUID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load issue statuses")
@@ -696,6 +719,9 @@ func (h *Handler) UpdateIssueWorkflow(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	name, description, steps = issueworkflow.Normalize(name, description, steps)
+	if !h.requireHumanGateEdit(w, r, member, workspaceID, issueworkflow.Definition{Steps: currentSteps}, issueworkflow.Definition{Steps: steps}) {
+		return
+	}
 	catalog, err := h.workflowStatusCatalog(ctx, qtx, wsUUID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load issue statuses")
@@ -814,6 +840,9 @@ func (h *Handler) DeleteIssueWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 	if row.IsDefault {
 		writeErrorCode(w, http.StatusBadRequest, "workflow_is_default", "the Default workflow cannot be deleted")
+		return
+	}
+	if def, err := issueworkflow.Decode(row); err != nil || !h.requireHumanGateEdit(w, r, member, workspaceID, def) {
 		return
 	}
 	projects, err := qtx.ListProjectsUsingIssueWorkflow(ctx, db.ListProjectsUsingIssueWorkflowParams{WorkspaceID: wsUUID, WorkflowID: idUUID})
@@ -966,6 +995,28 @@ func (h *Handler) SetProjectWorkflow(w http.ResponseWriter, r *http.Request) {
 			target = &def
 		}
 	}
+	previousWorkflow, loadErr := issueworkflow.ForProjectRow(ctx, qtx, project)
+	if loadErr != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read current workflow")
+		return
+	}
+	var gateDefs []issueworkflow.Definition
+	if previousWorkflow != nil {
+		gateDefs = append(gateDefs, *previousWorkflow)
+	}
+	if target != nil {
+		gateDefs = append(gateDefs, *target)
+	} else {
+		defaultWorkflow, err := issueworkflow.DefaultFor(ctx, qtx, wsUUID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to read default workflow")
+			return
+		}
+		gateDefs = append(gateDefs, defaultWorkflow)
+	}
+	if !h.requireHumanGateEdit(w, r, member, workspaceID, gateDefs...) {
+		return
+	}
 	catalog, err := h.workflowStatusCatalog(ctx, qtx, wsUUID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load issue statuses")
@@ -1100,6 +1151,9 @@ func (h *Handler) SetIssueWorkflowHandoff(w http.ResponseWriter, r *http.Request
 	}
 	if err := issueworkflow.ValidateHandoff(step, def); err != nil {
 		writeErrorCode(w, http.StatusBadRequest, "invalid_handoff", err.Error())
+		return
+	}
+	if !h.requireHumanGateEdit(w, r, member, workspaceID, def, issueworkflow.Definition{Steps: []issueworkflow.Step{step}}) {
 		return
 	}
 	if status, msg := h.validateHandoffHandlers(ctx, r, workspaceID, []issueworkflow.Step{step}, def.Steps); status != 0 {
@@ -1366,7 +1420,7 @@ func (h *Handler) PreviewWorkflowHandoff(w http.ResponseWriter, r *http.Request)
 		params.ProjectID = projectID
 		enterOnMove = true
 	}
-	hand, err := h.applyIssueWorkflow(r.Context(), issue, &params, status != "", false, enterOnMove, nil)
+	hand, err := h.applyIssueWorkflow(r, issue, &params, status != "", false, enterOnMove, nil)
 	if err != nil {
 		if writeIssueWorkflowError(w, err) {
 			return

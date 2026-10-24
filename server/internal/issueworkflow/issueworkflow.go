@@ -28,6 +28,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/multica-ai/multica/server/internal/issuestatus"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -163,6 +164,7 @@ type Handler struct {
 
 // Step is one status of a workflow with its handoff.
 type Step struct {
+	Script        *Script `json:"script,omitempty"`
 	StatusKey     string  `json:"status_key"`
 	Handler       Handler `json:"handler"`
 	Instructions  string  `json:"instructions"`
@@ -190,6 +192,7 @@ func (s Step) HandsOff() bool {
 // storedStep is a step as the workflow row stores it; a step without a
 // handoff is just its status key.
 type storedStep struct {
+	Script        *Script  `json:"script,omitempty"`
 	StatusKey     string   `json:"status_key"`
 	Handler       *Handler `json:"handler,omitempty"`
 	Instructions  string   `json:"instructions,omitempty"`
@@ -219,6 +222,7 @@ func DecodeSteps(raw []byte) ([]Step, error) {
 	steps := make([]Step, len(stored))
 	for i, s := range stored {
 		steps[i] = Step{
+			Script:        s.Script,
 			StatusKey:     s.StatusKey,
 			Handler:       Handler{Type: HandlerNone},
 			Instructions:  s.Instructions,
@@ -245,7 +249,7 @@ func DecodeKeys(raw []byte) ([]string, error) {
 func EncodeSteps(steps []Step) ([]byte, error) {
 	stored := make([]storedStep, len(steps))
 	for i, s := range steps {
-		stored[i] = storedStep{StatusKey: s.StatusKey, NextStatusKey: s.NextStatusKey, BackStatusKey: s.BackStatusKey}
+		stored[i] = storedStep{Script: s.Script, StatusKey: s.StatusKey, NextStatusKey: s.NextStatusKey, BackStatusKey: s.BackStatusKey}
 		if s.HandsOff() {
 			h := s.Handler
 			stored[i].Handler = &h
@@ -381,10 +385,17 @@ func Validate(name, description string, steps []Step, isDefault bool, catalog ma
 		seen[key] = true
 	}
 	def := Definition{Steps: steps}
+	scriptCount := 0
 	for _, s := range steps {
+		if s.Script != nil {
+			scriptCount++
+		}
 		if err := ValidateHandoff(s, def); err != nil {
 			return err
 		}
+	}
+	if scriptCount > 1 {
+		return invalid("the linear pilot supports one script gate per workflow")
 	}
 	return nil
 }
@@ -392,6 +403,13 @@ func Validate(name, description string, steps []Step, isDefault bool, catalog ma
 // NormalizeHandoff trims a handoff and drops fields its handler type does
 // not use.
 func NormalizeHandoff(s Step) Step {
+	if s.Script != nil {
+		script := *s.Script
+		if script.RequiredEnv == nil {
+			script.RequiredEnv = []string{}
+		}
+		s.Script = &script
+	}
 	s.StatusKey = strings.TrimSpace(s.StatusKey)
 	s.Handler.Type = strings.TrimSpace(s.Handler.Type)
 	s.Handler.ID = strings.TrimSpace(s.Handler.ID)
@@ -419,6 +437,19 @@ func NormalizeHandoff(s Step) Step {
 func ValidateHandoff(s Step, def Definition) error {
 	if !def.Has(s.StatusKey) {
 		return invalid("status %q is not part of this workflow", s.StatusKey)
+	}
+	if s.Script != nil {
+		if s.Handler.Type != HandlerNone || IsFixed(s.StatusKey) {
+			return invalid("script steps keep the assignee and require a non-fixed status")
+		}
+		if err := s.Script.Validate(); err != nil {
+			return err
+		}
+		next, nextOK := def.Step(s.NextStatusKey)
+		back, backOK := def.Step(s.BackStatusKey)
+		if !nextOK || !backOK || next.Handler.Type != HandlerAgent || back.Handler.Type != HandlerAgent || next.Handler.ID == back.Handler.ID || next.Script != nil || back.Script != nil || def.NextStatus(back.StatusKey) != s.StatusKey {
+			return invalid("script needs an agent repair step returning to it and an independent agent review step")
+		}
 	}
 	switch s.Handler.Type {
 	case HandlerNone, HandlerProjectLead:

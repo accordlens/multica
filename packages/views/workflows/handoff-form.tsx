@@ -48,15 +48,16 @@ function modeOf(handler: IssueWorkflowStep["handler"]): HandoffMode {
  * The parts of a handoff that are saved. Instructions and next/back statuses
  * only reach an agent's brief, so they are kept for agent handoffs alone.
  */
-export function savedHandoff<T extends Pick<IssueWorkflowStep, "handler" | "instructions" | "next_status_key" | "back_status_key">>(
+export function savedHandoff<T extends Pick<IssueWorkflowStep, "handler" | "instructions" | "next_status_key" | "back_status_key" | "script">>(
   step: T,
 ): T {
-  if (step.handler.type === "agent") return step;
+  if (step.script || step.handler.type === "agent") return step;
   return { ...step, instructions: "", next_status_key: undefined, back_status_key: undefined };
 }
 
 function sameStep(a: IssueWorkflowStep, b: IssueWorkflowStep): boolean {
   return (
+    JSON.stringify(a.script) === JSON.stringify(b.script) &&
     a.handler.type === b.handler.type &&
     (a.handler.id ?? "") === (b.handler.id ?? "") &&
     a.instructions === b.instructions &&
@@ -145,6 +146,7 @@ export function WorkflowHandoffForm({
         statusKey,
         handler: out.handler,
         instructions: out.instructions,
+        script: out.script,
         next_status_key: out.next_status_key,
         back_status_key: out.back_status_key,
         copyForProjectId: copyFor?.id,
@@ -610,6 +612,7 @@ export function BriefPreviewDialog({
         ...(projectId ? { project_id: projectId } : {}),
         handler: step.handler,
         instructions: step.instructions,
+        script: step.script,
         next_status_key: step.next_status_key,
         back_status_key: step.back_status_key,
       }),

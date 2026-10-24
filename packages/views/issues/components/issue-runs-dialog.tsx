@@ -40,6 +40,7 @@ import { RunCumulativeChart } from "./issue-runs-cumulative-chart";
 import { canRetryRun, RetryRunButton } from "./retry-run-button";
 import { RunTriggerLabel } from "./run-trigger-label";
 import { useStatusLabel, useTriggerText } from "./task-run-labels";
+import { WorkflowRunEvidence } from "./workflow-run-evidence";
 
 // The issue's runs laid out in time — the surface the execution log's header
 // and cost bars open.
@@ -251,6 +252,9 @@ function RunStats({ timeline }: { timeline: RunTimeline }) {
           })}
         </span>
       </Stat>
+      {timeline.scriptMs > 0 && <Stat label={t(($) => $.workflow_run.script_time)}>
+        <span className="text-title-sm font-medium">{formatDuration(timeline.scriptMs / 1000, UNDER_A_SECOND)}</span>
+      </Stat>}
       <Stat label={t(($) => $.runs_timeline.stat_runs)}>
         <span className="text-title-sm font-medium">{timeline.runs.length}</span>
         {breakdown.length > 0 && (
@@ -868,7 +872,9 @@ function RunListRow({ run, issueId }: { run: TimelineRun; issueId: string }) {
           <span className="truncate">{agentName}</span>
         </span>
         <span className={cn(COL.model, "min-w-0")}>
-          {model ? (
+          {task.workflow_execution?.kind === "script" ? (
+            <span className="text-micro text-muted-foreground">{t(($) => $.workflow_run.script)}</span>
+          ) : model ? (
             <span
               title={run.usage!.models.join(", ")}
               className="inline-block max-w-full truncate rounded-xs bg-muted px-1.5 py-0.5 align-middle text-micro text-muted-foreground"
@@ -1004,7 +1010,7 @@ function RunDetails({ id, run, reason }: { id: string; run: TimelineRun; reason:
           </div>
         </div>
       ) : (
-        <p className="text-muted-foreground">{t(($) => $.runs_timeline.no_usage)}</p>
+        <p className="text-muted-foreground">{run.task.workflow_execution?.kind === "script" ? t(($) => $.workflow_run.resources) : t(($) => $.runs_timeline.no_usage)}</p>
       )}
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] content-start gap-x-3 gap-y-1">
         <dt className="text-muted-foreground">{t(($) => $.runs_timeline.detail_status)}</dt>
@@ -1039,6 +1045,7 @@ function RunDetails({ id, run, reason }: { id: string; run: TimelineRun; reason:
           </>
         )}
       </dl>
+      <WorkflowRunEvidence task={run.task} />
     </div>
   );
 }

@@ -49,6 +49,9 @@ func newController(cmd *exec.Cmd) (*controller, error) {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.HideWindow = true
+	// Assign the Job Object before any child instruction can spawn a shim's
+	// descendant outside it. Ownership failure remains fail-closed.
+	cmd.SysProcAttr.CreationFlags |= 0x00000004 // CREATE_SUSPENDED
 	return &controller{job: job}, nil
 }
 
@@ -64,6 +67,36 @@ func (c *controller) attach(cmd *exec.Cmd) error {
 	defer windows.CloseHandle(process)
 	if err := windows.AssignProcessToJobObject(c.job, process); err != nil {
 		return fmt.Errorf("assign process to job object: %w", err)
+	}
+	return resumeWorkflowProcess(cmd.Process.Pid)
+}
+
+func resumeWorkflowProcess(pid int) error {
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPTHREAD, 0)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(snapshot)
+	entry := windows.ThreadEntry32{}
+	entry.Size = uint32(unsafe.Sizeof(entry))
+	resumed := false
+	for err = windows.Thread32First(snapshot, &entry); err == nil; err = windows.Thread32Next(snapshot, &entry) {
+		if entry.OwnerProcessID != uint32(pid) {
+			continue
+		}
+		thread, openErr := windows.OpenThread(windows.THREAD_SUSPEND_RESUME, false, entry.ThreadID)
+		if openErr != nil {
+			return openErr
+		}
+		_, resumeErr := windows.ResumeThread(thread)
+		_ = windows.CloseHandle(thread)
+		if resumeErr != nil {
+			return resumeErr
+		}
+		resumed = true
+	}
+	if !resumed {
+		return fmt.Errorf("no suspended thread for workflow process %d", pid)
 	}
 	return nil
 }

@@ -81,6 +81,8 @@ export interface RunTimeline {
   cacheSavings: number;
   /** Sum of finished runs' wall time. */
   agentMs: number;
+  /** Script resources are separate from agent/model usage. */
+  scriptMs: number;
   /** First start to last end (or now, while a run is active). */
   elapsedMs: number;
   failedCount: number;
@@ -172,6 +174,7 @@ export function buildRunTimeline(tasks: readonly AgentTask[], nowMs: number): Ru
   let pricedCount = 0;
   let cacheSavings = 0;
   let agentMs = 0;
+  let scriptMs = 0;
   let failedCount = 0;
   let cancelledCount = 0;
   let activeCount = 0;
@@ -196,7 +199,10 @@ export function buildRunTimeline(tasks: readonly AgentTask[], nowMs: number): Ru
         modelCost.set(slice.model, (modelCost.get(slice.model) ?? 0) + estimateCost(slice));
       }
     }
-    if (run.durationMs != null) agentMs += run.durationMs;
+    if (run.durationMs != null) {
+      if (run.task.workflow_execution?.kind === "script") scriptMs += run.durationMs;
+      else agentMs += run.durationMs;
+    }
     if (run.task.status === "failed") failedCount += 1;
     if (run.task.status === "cancelled") cancelledCount += 1;
     if (run.active) activeCount += 1;
@@ -234,6 +240,7 @@ export function buildRunTimeline(tasks: readonly AgentTask[], nowMs: number): Ru
     tokens,
     cacheSavings,
     agentMs,
+    scriptMs,
     elapsedMs,
     failedCount,
     cancelledCount,
@@ -451,7 +458,7 @@ export function groupRunsByDay(runs: readonly TimelineRun[]): RunDayGroup[] {
     group.runs.push(run);
     group.cost += run.usage?.cost ?? 0;
     group.tokens += run.usage?.tokens ?? 0;
-    group.agentMs += run.durationMs ?? 0;
+    if (run.task.workflow_execution?.kind !== "script") group.agentMs += run.durationMs ?? 0;
   }
   return Array.from(groups.values());
 }

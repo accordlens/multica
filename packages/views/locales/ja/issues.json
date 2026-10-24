@@ -1729,5 +1729,17 @@
     "remove_source": "参照元のリンクを削除",
     "issue_closed": "タスク終了：新しい実行は開始されません",
     "local_changes": "未コミットの変更"
+  },
+  "workflow_run": {
+    "evidence": "ワークフローの証跡",
+    "step": "ステップ",
+    "source": "ソース SHA",
+    "definition": "ワークフローのバージョン",
+    "script": "スクリプト",
+    "repairs": "修正回数",
+    "report": "レポート",
+    "log": "ログ",
+    "resources": "スクリプトの実行時間はモデルの使用量と別に記録されます。",
+    "script_time": "スクリプト実行時間"
   }
 }

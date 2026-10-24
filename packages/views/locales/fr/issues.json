@@ -1795,5 +1795,17 @@
     "remove_source": "Supprimer le lien source",
     "issue_closed": "Tâche clôturée ; aucune nouvelle exécution",
     "local_changes": "Modifications non commitées"
+  },
+  "workflow_run": {
+    "evidence": "Preuves du workflow",
+    "step": "Étape",
+    "source": "SHA source",
+    "definition": "Version du workflow",
+    "script": "Script",
+    "repairs": "Tentatives de correction",
+    "report": "Rapport",
+    "log": "Journal",
+    "resources": "La durée du script est enregistrée séparément de l’utilisation du modèle.",
+    "script_time": "Durée des scripts"
   }
 }

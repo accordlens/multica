@@ -2763,7 +2763,7 @@ func runIssueRuns(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	headers := []string{"ID", "AGENT", "STATUS", "STARTED", "COMPLETED", "ERROR"}
+	headers := []string{"ID", "AGENT", "STATUS", "WORKFLOW", "STARTED", "COMPLETED", "ERROR"}
 	rows := make([][]string, 0, len(runs))
 	for _, r := range runs {
 		started := strVal(r, "started_at")
@@ -2779,10 +2779,22 @@ func runIssueRuns(cmd *cobra.Command, args []string) error {
 			runes := []rune(errMsg)
 			errMsg = string(runes[:47]) + "..."
 		}
+		workflow := ""
+		if execution, ok := r["workflow_execution"].(map[string]any); ok {
+			step := strVal(r, "workflow_step")
+			if step == "" {
+				step = strVal(execution, "step_key")
+			}
+			workflow = strVal(execution, "kind") + " · " + step
+			if reason := strVal(execution, "block_reason"); reason != "" {
+				errMsg = reason
+			}
+		}
 		rows = append(rows, []string{
 			displayID(strVal(r, "id"), fullID),
 			actors.agent(strVal(r, "agent_id")),
 			strVal(r, "status"),
+			workflow,
 			started,
 			completed,
 			errMsg,
