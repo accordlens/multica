@@ -85,13 +85,15 @@ func TestScriptWorkflowOfflineJointDependenciesAndRevisionEvidence(t *testing.T)
 				bad.Report, bad.ReportHash = failure.Report, failure.ReportHash
 			}
 			raw, _ := json.Marshal(workflowCompletion{Output: "PASS", Evidence: &bad})
-			_, _, err := transport.CompleteTaskWithTransition(context.Background(), retest.ID, raw, "", p.workdir, "joint", false, "", "")
+			_, transitioned, err := transport.CompleteTaskWithTransition(context.Background(), retest.ID, raw, "", p.workdir, "joint", false, "", "")
 			if mode == "reopened prerequisite" {
-				if err == nil || copy.issue.Status != "verify" {
+				if transitioned || copy.issue.Status != "verify" {
 					t.Fatal("native review transition ignored an unmet dependency")
 				}
-				// The fake has no transaction rollback. This assertion concerns
-				// delivery/admission only; task-row rollback remains a DB gate.
+				// This transport has no rollback, so its completed row can turn
+				// ErrNoRows into an idempotent response. Assert no delivery or
+				// successor here; atomic task-row rollback remains a DB gate.
+				t.Logf("unmet dependency: transitioned=%v error=%v; transaction rollback NOT_RUN", transitioned, err)
 			} else if err != nil || copy.issue.Status != "blocked" {
 				t.Fatalf("invalid %s evidence was not blocked: status=%s err=%v", mode, copy.issue.Status, err)
 			}
