@@ -34,6 +34,8 @@ export const databaseSuites = [
       "TestIssueDependencyInfrastructureIntegrationHasNoCycleOrImplicitAcceptance",
       "TestIssueDependencyTenantIsolation",
       "TestIssueDependencyLinearChainAndCancelledInput",
+      "TestIssueContextLinksExplicitReferencesAndCorrection",
+      "TestIssueContextLinkEmitsOnlyMetadataInvalidation",
       "TestIssueProvenanceNativeEvidenceAutomaticallyLinksCommitAndRetainsCorrection",
       "TestIssueProvenanceRevisionHistoryReplayAndACL",
       "TestIssueProvenancePRCanLinkMultipleTasksWithoutWebhook",

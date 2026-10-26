@@ -7,10 +7,12 @@ test("script run details show the stored revision, report and repair blocker", a
     const workspace = (await api.getWorkspaces())[0]!;
     const issue = await api.createIssue("Verify the answer before independent review", { status: "blocked" });
     const receipt = await api.seedWorkflowScriptRun(issue.id);
+    const token = api.getToken();
+    if (!token) throw new Error("Test login did not return a token");
     await page.addInitScript((token) => {
       localStorage.setItem("multica_token", token);
       localStorage.setItem("multica:chat:isOpen", "false");
-    }, api.getToken());
+    }, token);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto(`/${workspace.slug}/issues/${issue.id}`, { waitUntil: "domcontentloaded" });
     await page.getByRole("button", { name: "1 run", exact: true }).click();
