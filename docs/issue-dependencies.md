@@ -209,6 +209,9 @@ final integration scenario. The browser scenario is
 → independent review is the ACCO-94 integration scenario, not a claimed outcome
 of a context link or completed-run condition.
 
+For the combined PostgreSQL pilot, a runner that rejects missing/skipped tests,
+and browser recordings, see [workflow-acceptance.md](workflow-acceptance.md).
+
 Database rows and existing queue CAS/dedup keep logical relations, reports and
 claims idempotent across replay/reconnect. A manual rerun is new intent. External
 commands and provider-side PR creation cannot be made exactly-once by a database

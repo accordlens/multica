@@ -301,3 +301,29 @@ func TestIssueDependencyTenantIsolation(t *testing.T) {
 	r.URL.RawQuery = "workspace_id=" + workspace
 	testutil.Call(t, testHandler.ListIssueDependencies, r).Want(404)
 }
+
+func TestIssueDependencyLinearChainAndCancelledInput(t *testing.T) {
+	a, b, c := dbfx.Issue(t, "A"), dbfx.Issue(t, "B"), dbfx.Issue(t, "C")
+	addDependency(t, b, a, "done")
+	addDependency(t, c, b, "done")
+	ready := func(id string, expected bool) {
+		t.Helper()
+		actual, err := testHandler.Queries.IssueDependenciesReady(context.Background(), db.IssueDependenciesReadyParams{IssueID: parseUUID(id), Step: "todo"})
+		if err != nil || actual != expected {
+			t.Fatalf("chain readiness: issue=%s ready=%v expected=%v err=%v", id, actual, expected, err)
+		}
+	}
+	ready(b, false)
+	ready(c, false)
+	dbfx.Exec(t, "UPDATE issue SET status='in_review' WHERE id=$1", a)
+	ready(b, false)
+	dbfx.Exec(t, "UPDATE issue SET status='done' WHERE id=$1", a)
+	ready(b, true)
+	ready(c, false)
+	dbfx.Exec(t, "UPDATE issue SET status='cancelled' WHERE id=$1", b)
+	ready(c, false)
+	dbfx.Exec(t, "UPDATE issue SET status='done' WHERE id=$1", b)
+	ready(c, true)
+	dbfx.Exec(t, "UPDATE issue SET status='in_progress' WHERE id=$1", b)
+	ready(c, false)
+}

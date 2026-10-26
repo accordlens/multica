@@ -184,6 +184,9 @@ workers, cancellation, deadline expiry, path validation and abrupt daemon death.
 Native Windows execution remains a separate required environment check;
 cross-compilation does not prove cancellation behavior on a Windows PC.
 
+See [workflow-acceptance.md](workflow-acceptance.md) for the combined PostgreSQL
+dependency pilot, strict receipt checks and focused browser recordings.
+
 ## Small process catalog and recurrence
 
 - **Code:** the project lead owns the change request and scope. Output is a

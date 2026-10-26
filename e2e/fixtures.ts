@@ -404,6 +404,21 @@ export class TestApiClient {
     return res.json();
   }
 
+  async createIssueRelation(issueId: string, input: Record<string, unknown>) {
+    const res = await this.authedFetch(`/api/issues/${issueId}/relations`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) throw new Error(`create relation failed: ${res.status} ${await res.text()}`);
+    return res.json();
+  }
+
+  async getIssueRelations(issueId: string) {
+    const res = await this.authedFetch(`/api/issues/${issueId}/relations`);
+    if (!res.ok) throw new Error(`list relations failed: ${res.status} ${await res.text()}`);
+    return res.json();
+  }
+
   /** A terminal script receipt for browser projection tests; no runtime/model is created. */
   async seedWorkflowScriptRun(issueId: string) {
     if (!this.workspaceId || !this.email) throw new Error("Log in before seeding workflow evidence");
