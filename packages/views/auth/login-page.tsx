@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Card,
@@ -20,10 +20,13 @@ import {
   InputOTPSlot,
 } from "@multica/ui/components/ui/input-otp";
 import { useAuthStore } from "@multica/core/auth";
+import { useConfigStore } from "@multica/core/config";
+import type { LoginResponse } from "@multica/core/api";
 import { workspaceKeys } from "@multica/core/workspace/queries";
 import { api } from "@multica/core/api";
 import type { User } from "@multica/core/types";
 import { useT } from "../i18n";
+import { PasskeySignIn } from "./passkey-sign-in";
 
 // Types
 
@@ -60,6 +63,8 @@ interface LoginPageProps {
    *  app?" prompt; desktop omits it (a download prompt inside the app
    *  would be absurd). */
   extra?: ReactNode;
+  /** One-time passkey enrollment token (`/login?enroll=…`, ACCO-55). */
+  enrollToken?: string;
 }
 
 // Helpers
@@ -100,6 +105,7 @@ export function LoginPage({
   onTokenObtained,
   onGoogleLogin,
   extra,
+  enrollToken,
 }: LoginPageProps) {
   const { t } = useT("auth");
   const qc = useQueryClient();
@@ -110,13 +116,11 @@ export function LoginPage({
   const [loading, setLoading] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [existingUser, setExistingUser] = useState<User | null>(null);
-  // Tracks how the existing session was detected so handleCliAuthorize
-  // uses the matching token source (cookie → issueCliToken, localStorage → direct).
-  const authSourceRef = useRef<"cookie" | "localStorage">("cookie");
   // The last session ended because the server rejected its credential, not
   // because the user asked to leave. Without saying so, landing here reads as
   // the app having lost their work for no reason.
   const sessionExpired = useAuthStore((state) => state.expired);
+  const passkeyOnly = useConfigStore((state) => state.passkeyOnly);
 
   // Check for existing session when CLI callback is present.
   // Prioritises cookie auth (= current browser session) to avoid authorising
@@ -136,7 +140,6 @@ export function LoginPage({
     api
       .getMe()
       .then((user) => {
-        authSourceRef.current = "cookie";
         setExistingUser(user);
         setStep("cli_confirm");
       })
@@ -149,7 +152,6 @@ export function LoginPage({
         api
           .getMe()
           .then((user) => {
-            authSourceRef.current = "localStorage";
             setExistingUser(user);
             setStep("cli_confirm");
           })
@@ -232,6 +234,25 @@ export function LoginPage({
     [email, onSuccess, cliCallback, onTokenObtained, qc, t],
   );
 
+  // Same post-login hand-off as handleVerify, for a passkey session.
+  const handlePasskeySignedIn = useCallback(
+    async ({ token }: LoginResponse) => {
+      if (cliCallback) {
+        localStorage.setItem("multica_token", token);
+        api.setToken(token);
+        const { token: cliToken } = await api.issueCliToken();
+        onTokenObtained?.();
+        redirectToCliCallback(cliCallback.url, cliToken, cliCallback.state);
+        return;
+      }
+      const wsList = await api.listWorkspaces();
+      qc.setQueryData(workspaceKeys.list(), wsList);
+      onTokenObtained?.();
+      onSuccess();
+    },
+    [cliCallback, onTokenObtained, onSuccess, qc],
+  );
+
   const handleResend = async () => {
     if (cooldown > 0) return;
     setError("");
@@ -250,18 +271,9 @@ export function LoginPage({
     setLoading(true);
 
     try {
-      let token: string;
-
-      if (authSourceRef.current === "localStorage") {
-        // Session was detected via localStorage — reuse that token directly.
-        const stored = localStorage.getItem("multica_token");
-        if (!stored) throw new Error("token missing");
-        token = stored;
-      } else {
-        // Session was detected via cookie — obtain a bearer token from the server.
-        const res = await api.issueCliToken();
-        token = res.token;
-      }
+      // Exchange either browser session source for a CLI credential without
+      // the recent-passkey claim that permits credential management.
+      const { token } = await api.issueCliToken();
 
       onTokenObtained?.();
       redirectToCliCallback(cliCallback.url, token, cliCallback.state);
@@ -328,6 +340,48 @@ export function LoginPage({
               {t(($) => $.cli.different_account)}
             </Button>
           </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Passkey-only deployments: no email, code or Google step at all
+
+  if (passkeyOnly || enrollToken) {
+    return (
+      <div className="flex min-h-svh items-center justify-center">
+        <Card className="w-full max-w-sm">
+          <CardHeader className="text-center">
+            {logo && <div className="mx-auto mb-4">{logo}</div>}
+            <CardTitle className="text-display-sm">
+              {enrollToken
+                ? t(($) => $.passkey.enroll_title)
+                : t(($) => $.signin.title)}
+            </CardTitle>
+            {enrollToken && (
+              <CardDescription>
+                {t(($) => $.passkey.enroll_description)}
+              </CardDescription>
+            )}
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {sessionExpired && (
+              <Alert>
+                <AlertDescription>
+                  {t(($) => $.errors.session_expired)}
+                </AlertDescription>
+              </Alert>
+            )}
+            <PasskeySignIn
+              enrollToken={enrollToken}
+              onSignedIn={handlePasskeySignedIn}
+            />
+          </CardContent>
+          {extra && (
+            <CardFooter>
+              <div className="w-full text-center">{extra}</div>
+            </CardFooter>
+          )}
         </Card>
       </div>
     );

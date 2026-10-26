@@ -76,6 +76,16 @@ function LoginPageContent() {
   // cannot bounce the user off-origin after a successful login.
   const nextUrl = sanitizeNextUrl(searchParams.get("next"));
 
+  // One-time passkey enrollment link (`/login?enroll=…`, ACCO-55). Captured
+  // once, then dropped from the address bar so it does not linger in history.
+  const [enrollToken] = useState(() => searchParams.get("enroll") || undefined);
+  useEffect(() => {
+    if (!enrollToken) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("enroll");
+    window.history.replaceState(window.history.state, "", url);
+  }, [enrollToken]);
+
   const [desktopToken, setDesktopToken] = useState<string | null>(null);
   const [desktopError, setDesktopError] = useState("");
   const hasOnboarded = useHasOnboarded();
@@ -233,6 +243,7 @@ function LoginPageContent() {
           : undefined
       }
       onTokenObtained={setLoggedInCookie}
+      enrollToken={enrollToken}
       extra={
         <span className="text-caption text-muted-foreground">
           {t(($) => $.web.prefer_desktop)}{" "}

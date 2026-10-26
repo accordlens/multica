@@ -1126,7 +1126,10 @@
     "invitation_meta": "{{sent}} 발송 · {{expires}} 만료",
     "revoke_invitation_aria": "{{email}}에 보낸 초대 취소",
     "seats_used": "{{purchased}}석 중 {{used}}석 사용",
-    "manage_seats": "좌석 관리"
+    "manage_seats": "좌석 관리",
+    "copy_passkey_link_aria": "{{email}}의 가입 링크 복사",
+    "toast_passkey_link_copied": "가입 링크를 복사했습니다. 24시간 동안 한 번만 사용할 수 있습니다.",
+    "toast_passkey_link_failed": "가입 링크를 만들지 못했습니다"
   },
   "lark": {
     "section_title": "Lark",
@@ -1432,5 +1435,22 @@
     "mcp": "관리자가 추가해 워크스페이스에서 공유하고, 에이전트별로 할당합니다.",
     "apps": "내 계정으로 Composio를 통해 승인하고, 내가 소유한 에이전트에서 사용합니다.",
     "plugins": "설치하면 도구, 예약 훅, 저장소를 추가할 수 있으며 플러그인마다 권한을 부여합니다."
+  },
+  "passkeys": {
+    "title": "패스키",
+    "description": "기기 하나를 잃어도 로그인할 수 있도록 다른 기기에 백업 패스키를 두세요.",
+    "add": "패스키 추가",
+    "adding": "패스키를 기다리는 중…",
+    "created": "{{date}}에 추가됨",
+    "last_used": "마지막 사용 {{date}}",
+    "never_used": "아직 사용하지 않음",
+    "remove_aria": "패스키 {{name}} 삭제",
+    "only_one_hint": "이 패스키를 삭제하기 전에 백업 패스키를 추가하세요.",
+    "reauth_required": "보안을 위해 로그아웃한 뒤 패스키로 다시 로그인하고 10분 안에 다시 시도하세요.",
+    "remove_title": "패스키를 삭제할까요?",
+    "remove_description": "{{name}}(으)로 더 이상 로그인할 수 없습니다. 이미 로그인된 기기는 로그아웃하거나 세션이 만료될 때까지 로그인 상태로 유지됩니다.",
+    "toast_added": "패스키를 추가했습니다",
+    "toast_removed": "패스키를 삭제했습니다",
+    "toast_failed": "패스키를 업데이트하지 못했습니다"
   }
 }

@@ -95,7 +95,10 @@ test.describe("Issues", () => {
     await expect(page.getByText(oldTitle)).toBeHidden({ timeout: 10000 });
     await expect(page.getByText(updatedTodayTitle)).toBeHidden({ timeout: 10000 });
 
-    await page.getByRole("button", { name: /1 filter/i }).click();
+    const filterButton = page.getByRole("button", { name: /1 filter/i });
+    if (await filterButton.getAttribute("aria-expanded") === "false") {
+      await filterButton.click();
+    }
     const dateFilterItem = page.getByRole("menuitem", { name: /^Date\b/ });
     await dateFilterItem.focus();
     await page.keyboard.press("ArrowRight");

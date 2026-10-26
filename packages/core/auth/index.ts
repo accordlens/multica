@@ -1,6 +1,12 @@
 export { createAuthStore } from "./store";
-export type { AuthStoreOptions, AuthState, AuthStatus } from "./store";
+export type { AuthStoreOptions, AuthState, AuthStatus, PasskeyCeremonyRunner } from "./store";
 export { sanitizeNextUrl } from "./utils";
+export {
+  myPasskeysOptions,
+  passkeyKeys,
+  useAddPasskey,
+  useDeletePasskey,
+} from "./passkey-queries";
 
 import type { createAuthStore as CreateAuthStoreFn } from "./store";
 

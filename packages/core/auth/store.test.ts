@@ -188,4 +188,54 @@ describe("authStore", () => {
     expect(store.getState().status).toBe("authenticated");
     expect(store.getState().expired).toBe(false);
   });
+
+  describe("passkey sign-in", () => {
+    function passkeyApi(finish = vi.fn().mockResolvedValue({ token: "jwt", user: fakeUser })) {
+      return {
+        setToken: vi.fn(),
+        passkeyLoginBegin: vi.fn().mockResolvedValue({ challenge_id: "c1", options: { publicKey: { challenge: "abc" } } }),
+        passkeyLoginFinish: finish,
+        passkeyEnrollBegin: vi.fn().mockResolvedValue({ challenge_id: "c2", options: { publicKey: { challenge: "def" } } }),
+        passkeyEnrollFinish: finish,
+      } as unknown as ApiClient;
+    }
+
+    it("runs the ceremony for the server's options and signs in with its result", async () => {
+      const storage = makeStorage();
+      const api = passkeyApi();
+      const onLogin = vi.fn();
+      const store = createAuthStore({ api, storage, onLogin });
+      const runner = vi.fn().mockResolvedValue({ id: "cred" });
+
+      await expect(store.getState().loginWithPasskey(runner)).resolves.toEqual({ token: "jwt", user: fakeUser });
+
+      expect(runner).toHaveBeenCalledWith({ challenge: "abc" });
+      expect(api.passkeyLoginFinish).toHaveBeenCalledWith("c1", { id: "cred" });
+      expect(storage.snapshot().multica_token).toBe("jwt");
+      expect(onLogin).toHaveBeenCalledOnce();
+      expect(store.getState().status).toBe("authenticated");
+    });
+
+    it("keeps cookie sessions out of storage", async () => {
+      const storage = makeStorage();
+      const store = createAuthStore({ api: passkeyApi(), storage, cookieAuth: true });
+      await store.getState().enrollWithPasskey("link-token", vi.fn().mockResolvedValue({}));
+      expect(storage.snapshot().multica_token).toBeUndefined();
+      expect(store.getState().user).toEqual(fakeUser);
+    });
+
+    it("stays signed out when the person cancels the prompt", async () => {
+      const storage = makeStorage();
+      const api = passkeyApi();
+      const store = createAuthStore({ api, storage });
+      store.setState({ user: null, status: "unauthenticated", isLoading: false });
+      const cancelled = Object.assign(new Error("cancelled"), { name: "NotAllowedError" });
+
+      await expect(store.getState().loginWithPasskey(vi.fn().mockRejectedValue(cancelled))).rejects.toBe(cancelled);
+
+      expect(api.passkeyLoginFinish).not.toHaveBeenCalled();
+      expect(store.getState().status).toBe("unauthenticated");
+      expect(storage.snapshot().multica_token).toBeUndefined();
+    });
+  });
 });

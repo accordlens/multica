@@ -1,7 +1,12 @@
 import { create } from "zustand";
 import type { User, StorageAdapter } from "../types";
 import { identify as identifyAnalytics, resetAnalytics } from "../analytics";
-import type { ApiClient } from "../api/client";
+import type { ApiClient, LoginResponse } from "../api/client";
+
+/** Runs one WebAuthn browser ceremony for the server-issued options. */
+export type PasskeyCeremonyRunner = (
+  publicKey: Record<string, unknown>,
+) => Promise<unknown>;
 import { setCurrentWorkspace } from "../platform/workspace-storage";
 
 export interface AuthStoreOptions {
@@ -43,6 +48,17 @@ export interface AuthState {
   verifyCode: (email: string, code: string) => Promise<User>;
   loginWithGoogle: (code: string, redirectUri: string) => Promise<User>;
   loginWithToken: (token: string) => Promise<User>;
+  /**
+   * Passkey sign-in (ACCO-55). `getCredential` runs the browser ceremony for
+   * the server's options — injected so core stays free of DOM APIs. Resolves
+   * with the session token alongside the user so a CLI hand-off can use it.
+   */
+  loginWithPasskey: (getCredential: PasskeyCeremonyRunner) => Promise<LoginResponse>;
+  /** Register a first passkey with a one-time enrollment link, then sign in. */
+  enrollWithPasskey: (
+    token: string,
+    createCredential: PasskeyCeremonyRunner,
+  ) => Promise<LoginResponse>;
   logout: () => void;
   sessionExpired: () => void;
   setUser: (user: User) => void;
@@ -52,6 +68,20 @@ export interface AuthState {
 export function createAuthStore(options: AuthStoreOptions) {
   const { api, storage, onLogin, onLogout, onSessionExpired, cookieAuth } =
     options;
+
+  const completeLogin = (
+    set: (state: Partial<AuthState>) => void,
+    res: LoginResponse,
+  ): LoginResponse => {
+    if (!cookieAuth) {
+      storage.setItem("multica_token", res.token);
+      api.setToken(res.token);
+    }
+    onLogin?.();
+    identifyAnalytics(res.user.id, { email: res.user.email, name: res.user.name });
+    set({ user: res.user, isLoading: false, status: "authenticated", expired: false });
+    return res;
+  };
 
   return create<AuthState>((set, get) => ({
     user: null,
@@ -95,6 +125,18 @@ export function createAuthStore(options: AuthStoreOptions) {
       identifyAnalytics(user.id, { email: user.email, name: user.name });
       set({ user, isLoading: false, status: "authenticated", expired: false });
       return user;
+    },
+
+    loginWithPasskey: async (getCredential) => {
+      const ceremony = await api.passkeyLoginBegin();
+      const credential = await getCredential(ceremony.options.publicKey);
+      return completeLogin(set, await api.passkeyLoginFinish(ceremony.challenge_id, credential));
+    },
+
+    enrollWithPasskey: async (token, createCredential) => {
+      const ceremony = await api.passkeyEnrollBegin(token);
+      const credential = await createCredential(ceremony.options.publicKey);
+      return completeLogin(set, await api.passkeyEnrollFinish(ceremony.challenge_id, credential, ""));
     },
 
     loginWithToken: async (token: string) => {

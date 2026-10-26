@@ -68,6 +68,22 @@ const (
 	maxSessionRenewCheckInterval = 7 * 24 * time.Hour
 )
 
+// PasskeyAuthTimeClaim records, as Unix seconds, when the person behind a
+// session last presented a passkey. Only passkey sign-in sets it; tokens
+// minted for the CLI or desktop hand-off never carry it, so they can not
+// manage passkeys.
+const PasskeyAuthTimeClaim = "pk_at"
+
+// PasskeyAuthTime returns the passkey presentation time recorded in a session
+// token's claims, or the zero time when there is none.
+func PasskeyAuthTime(claims jwt.MapClaims) time.Time {
+	v, ok := claims[PasskeyAuthTimeClaim].(float64)
+	if !ok || v <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(int64(v), 0)
+}
+
 // ErrNotSessionToken is returned by RenewSessionToken when handed something
 // that is not one of our own UI session JWTs. PATs (mul_), agent task tokens
 // (mat_) and cloud-node PATs (mcn_) authenticate fine at the middleware but
@@ -245,6 +261,11 @@ func RenewSessionToken(claims jwt.MapClaims) (string, time.Time, error) {
 	}
 	if name, ok := claims["name"].(string); ok && name != "" {
 		next["name"] = name
+	}
+	// When the passkey was presented is a fact about the login, not about
+	// this token, so it survives renewal unchanged.
+	if at, ok := claims[PasskeyAuthTimeClaim]; ok {
+		next[PasskeyAuthTimeClaim] = at
 	}
 
 	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, next).SignedString(JWTSecret())
