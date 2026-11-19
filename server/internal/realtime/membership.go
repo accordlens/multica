@@ -177,16 +177,23 @@ drain:
 		c.hub.stopClient(c, nil, time.Time{})
 		return false
 	}
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
 	// One deadline bounds the whole batch instead of allowing each frame a
 	// fresh timeout. A revocation can still interrupt it via conn.Close.
-	c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	deadline := time.Now().Add(writeWait)
 	for _, frame := range batch {
+		if !c.hub.canDeliver(c, frame) {
+			continue
+		}
+		c.hub.pruneRevokedScopes(c, frame)
+		c.writeMu.Lock()
 		if c.stopped.Load() {
+			c.writeMu.Unlock()
 			return false
 		}
-		if err := c.conn.WriteMessage(websocket.TextMessage, frame); err != nil {
+		c.conn.SetWriteDeadline(deadline)
+		err := c.conn.WriteMessage(websocket.TextMessage, frame)
+		c.writeMu.Unlock()
+		if err != nil {
 			slog.Warn("websocket write error", "error", err, "user_id", c.userID, "workspace_id", c.workspaceID)
 			return false
 		}

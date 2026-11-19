@@ -278,6 +278,13 @@ func (h *Handler) chatHistorySession(w http.ResponseWriter, r *http.Request) (ch
 		writeError(w, http.StatusForbidden, "chat session does not belong to this workspace")
 		return chatHistoryScope{}, false
 	}
+	if session.Kind != "agent_dm" {
+		writeError(w, http.StatusNotFound, "chat session not found")
+		return chatHistoryScope{}, false
+	}
+	if _, ok := h.authorizeChatRequest(w, r, session.WorkspaceID, session.ID); !ok {
+		return chatHistoryScope{}, false
+	}
 	scope := chatHistoryScope{sessionID: task.ChatSessionID, contextRevision: task.ChannelContextRevision}
 	if task.ChannelContextRevision.Valid {
 		generation, err := h.Queries.GetChannelChatContextGeneration(r.Context(), db.GetChannelChatContextGenerationParams{

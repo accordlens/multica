@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@multica/core/api";
 import { attachmentIdFromDownloadURL } from "@multica/core/types/attachment-url";
+import { registerPrivateCacheCleanup } from "@multica/core/platform";
 
 // Keep refetches well inside the server's signed-URL TTL (30 min default,
 // server/internal/handler/file.go) so a re-render never serves an expired
@@ -34,6 +35,11 @@ export const INLINE_BLOB_GC_MS = 5 * 60 * 1000;
 const blobUrlCache = new Map<string, string>();
 const blobUrlRefCount = new Map<string, number>();
 const blobUrlGCTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+registerPrivateCacheCleanup(() => {
+  for (const url of blobUrlCache.values()) URL.revokeObjectURL(url);
+  __resetInlineMediaBlobCacheForTests();
+});
 
 export function __resetInlineMediaBlobCacheForTests(): void {
   for (const t of blobUrlGCTimers.values()) clearTimeout(t);

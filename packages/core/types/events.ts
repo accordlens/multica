@@ -56,6 +56,7 @@ export type WSEventType =
   | "reaction:removed"
   | "issue_reaction:added"
   | "issue_reaction:removed"
+  | "chat:access_revoked"
   | "chat:message"
   | "chat:done"
   | "chat:quick_actions"

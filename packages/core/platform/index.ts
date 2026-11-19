@@ -15,3 +15,5 @@ export {
   type SystemNotificationPayload,
   type WebNotificationPermission,
 } from "./system-notification";
+
+export { registerPrivateCacheCleanup } from "./private-cache";
